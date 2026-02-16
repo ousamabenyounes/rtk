@@ -1,45 +1,44 @@
-#!/bin/bash
-# RTK auto-rewrite hook for Claude Code PreToolUse:Bash
+#!/usr/bin/env bash
+# hooks/rtk-rewrite.sh
+# RTK auto-rewrite hook for Gemini CLI BeforeTool
 # Transparently rewrites raw commands to their rtk equivalents.
-# Outputs JSON with updatedInput to modify the command before execution.
 
 # Guards: skip silently if dependencies missing
 if ! command -v rtk &>/dev/null || ! command -v jq &>/dev/null; then
+  echo '{"decision": "allow"}'
   exit 0
 fi
 
 set -euo pipefail
 
 INPUT=$(cat)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-if [ -z "$CMD" ]; then
+if [ "$TOOL_NAME" != "run_shell_command" ] || [ -z "$CMD" ]; then
+  echo '{"decision": "allow"}'
   exit 0
 fi
 
-# Extract the first meaningful command (before pipes, &&, etc.)
-# We only rewrite if the FIRST command in a chain matches.
-FIRST_CMD="$CMD"
-
 # Skip if already using rtk
-case "$FIRST_CMD" in
-  rtk\ *|*/rtk\ *) exit 0 ;;
-esac
+if [[ "$CMD" =~ ^rtk\  ]] || [[ "$CMD" =~ ^.*/rtk\  ]]; then
+  echo '{"decision": "allow"}'
+  exit 0
+fi
 
-# Skip commands with heredocs, variable assignments as the whole command, etc.
-case "$FIRST_CMD" in
-  *'<<'*) exit 0 ;;
-esac
+# Skip commands with heredocs
+if [[ "$CMD" == *"<<"* ]]; then
+  echo '{"decision": "allow"}'
+  exit 0
+fi
 
 # Strip leading env var assignments for pattern matching
-# e.g., "TEST_SESSION_ID=2 npx playwright test" → match against "npx playwright test"
-# but preserve them in the rewritten command for execution.
-ENV_PREFIX=$(echo "$FIRST_CMD" | grep -oE '^([A-Za-z_][A-Za-z0-9_]*=[^ ]* +)+' || echo "")
+ENV_PREFIX=$(echo "$CMD" | grep -oE '^([A-Za-z_][A-Za-z0-9_]*=[^ ]* +)+' || echo "")
 if [ -n "$ENV_PREFIX" ]; then
-  MATCH_CMD="${FIRST_CMD:${#ENV_PREFIX}}"
+  MATCH_CMD="${CMD:${#ENV_PREFIX}}"
   CMD_BODY="${CMD:${#ENV_PREFIX}}"
 else
-  MATCH_CMD="$FIRST_CMD"
+  MATCH_CMD="$CMD"
   CMD_BODY="$CMD"
 fi
 
@@ -59,7 +58,7 @@ if echo "$MATCH_CMD" | grep -qE '^git[[:space:]]'; then
       ;;
   esac
 
-# --- GitHub CLI (added: api, release) ---
+# --- GitHub CLI ---
 elif echo "$MATCH_CMD" | grep -qE '^gh[[:space:]]+(pr|issue|run|api|release)([[:space:]]|$)'; then
   REWRITTEN="${ENV_PREFIX}$(echo "$CMD_BODY" | sed 's/^gh /rtk gh /')"
 
@@ -86,8 +85,6 @@ elif echo "$MATCH_CMD" | grep -qE '^find[[:space:]]+'; then
 elif echo "$MATCH_CMD" | grep -qE '^diff[[:space:]]+'; then
   REWRITTEN="${ENV_PREFIX}$(echo "$CMD_BODY" | sed 's/^diff /rtk diff /')"
 elif echo "$MATCH_CMD" | grep -qE '^head[[:space:]]+'; then
-  # Transform: head -N file → rtk read file --max-lines N
-  # Also handle: head --lines=N file
   if echo "$MATCH_CMD" | grep -qE '^head[[:space:]]+-[0-9]+[[:space:]]+'; then
     LINES=$(echo "$MATCH_CMD" | sed -E 's/^head +-([0-9]+) +.+$/\1/')
     FILE=$(echo "$MATCH_CMD" | sed -E 's/^head +-[0-9]+ +(.+)$/\1/')
@@ -98,7 +95,7 @@ elif echo "$MATCH_CMD" | grep -qE '^head[[:space:]]+'; then
     REWRITTEN="${ENV_PREFIX}rtk read $FILE --max-lines $LINES"
   fi
 
-# --- JS/TS tooling (added: npm run, npm test, vue-tsc) ---
+# --- JS/TS tooling ---
 elif echo "$MATCH_CMD" | grep -qE '^(pnpm[[:space:]]+)?(npx[[:space:]]+)?vitest([[:space:]]|$)'; then
   REWRITTEN="${ENV_PREFIX}$(echo "$CMD_BODY" | sed -E 's/^(pnpm )?(npx )?vitest( run)?/rtk vitest run/')"
 elif echo "$MATCH_CMD" | grep -qE '^pnpm[[:space:]]+test([[:space:]]|$)'; then
@@ -126,7 +123,7 @@ elif echo "$MATCH_CMD" | grep -qE '^pnpm[[:space:]]+playwright([[:space:]]|$)'; 
 elif echo "$MATCH_CMD" | grep -qE '^(npx[[:space:]]+)?prisma([[:space:]]|$)'; then
   REWRITTEN="${ENV_PREFIX}$(echo "$CMD_BODY" | sed -E 's/^(npx )?prisma/rtk prisma/')"
 
-# --- Containers (added: docker compose, docker run/build/exec, kubectl describe/apply) ---
+# --- Containers ---
 elif echo "$MATCH_CMD" | grep -qE '^docker[[:space:]]'; then
   if echo "$MATCH_CMD" | grep -qE '^docker[[:space:]]+compose([[:space:]]|$)'; then
     REWRITTEN="${ENV_PREFIX}$(echo "$CMD_BODY" | sed 's/^docker /rtk docker /')"
@@ -189,21 +186,18 @@ fi
 
 # If no rewrite needed, approve as-is
 if [ -z "$REWRITTEN" ]; then
+  echo '{"decision": "allow"}'
   exit 0
 fi
 
-# Build the updated tool_input with all original fields preserved, only command changed
-ORIGINAL_INPUT=$(echo "$INPUT" | jq -c '.tool_input')
-UPDATED_INPUT=$(echo "$ORIGINAL_INPUT" | jq --arg cmd "$REWRITTEN" '.command = $cmd')
-
-# Output the rewrite instruction
+# Output the rewrite instruction in Gemini CLI format
 jq -n \
-  --argjson updated "$UPDATED_INPUT" \
+  --arg cmd "$REWRITTEN" \
   '{
+    "decision": "allow",
     "hookSpecificOutput": {
-      "hookEventName": "PreToolUse",
-      "permissionDecision": "allow",
-      "permissionDecisionReason": "RTK auto-rewrite",
-      "updatedInput": $updated
+      "tool_input": {
+        "command": $cmd
+      }
     }
   }'

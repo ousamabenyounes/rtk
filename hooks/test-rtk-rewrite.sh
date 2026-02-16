@@ -22,7 +22,7 @@ test_rewrite() {
   TOTAL=$((TOTAL + 1))
 
   local input_json
-  input_json=$(jq -n --arg cmd "$input_cmd" '{"tool_name":"Bash","tool_input":{"command":$cmd}}')
+  input_json=$(jq -n --arg cmd "$input_cmd" '{"tool_name":"run_shell_command","tool_input":{"command":$cmd}}')
   local output
   output=$(echo "$input_json" | bash "$HOOK" 2>/dev/null) || true
 
@@ -33,7 +33,7 @@ test_rewrite() {
       PASS=$((PASS + 1))
     else
       local actual
-      actual=$(echo "$output" | jq -r '.hookSpecificOutput.updatedInput.command // empty')
+      actual=$(echo "$output" | jq -r '.hookSpecificOutput.tool_input.command // empty')
       printf "  ${RED}FAIL${RESET} %s\n" "$description"
       printf "       expected: (no rewrite)\n"
       printf "       actual:   %s\n" "$actual"
@@ -41,7 +41,7 @@ test_rewrite() {
     fi
   else
     local actual
-    actual=$(echo "$output" | jq -r '.hookSpecificOutput.updatedInput.command // empty' 2>/dev/null)
+    actual=$(echo "$output" | jq -r '.hookSpecificOutput.tool_input.command // empty' 2>/dev/null)
     if [ "$actual" = "$expected_cmd" ]; then
       printf "  ${GREEN}PASS${RESET} %s ${DIM}→ %s${RESET}\n" "$description" "$actual"
       PASS=$((PASS + 1))
@@ -193,17 +193,17 @@ test_rewrite "docker exec -it db psql" \
   "docker exec -it db psql" \
   "rtk docker exec -it db psql"
 
-test_rewrite "find (NOT rewritten — different arg format)" \
+test_rewrite "find" \
   "find . -name '*.ts'" \
-  ""
+  "rtk find . -name '*.ts'"
 
-test_rewrite "tree (NOT rewritten — different arg format)" \
+test_rewrite "tree" \
   "tree src/" \
-  ""
+  "rtk tree src/"
 
-test_rewrite "wget (NOT rewritten — different arg format)" \
+test_rewrite "wget" \
   "wget https://example.com/file" \
-  ""
+  "rtk wget https://example.com/file"
 
 test_rewrite "gh api repos/owner/repo" \
   "gh api repos/owner/repo" \
@@ -297,7 +297,7 @@ test_audit_log() {
   rm -f "$AUDIT_TMPDIR/hook-audit.log"
 
   local input_json
-  input_json=$(jq -n --arg cmd "$input_cmd" '{"tool_name":"Bash","tool_input":{"command":$cmd}}')
+  input_json=$(jq -n --arg cmd "$input_cmd" '{"tool_name":"run_shell_command","tool_input":{"command":$cmd}}')
   echo "$input_json" | RTK_HOOK_AUDIT=1 RTK_AUDIT_DIR="$AUDIT_TMPDIR" bash "$HOOK" 2>/dev/null || true
 
   if [ ! -f "$AUDIT_TMPDIR/hook-audit.log" ]; then
@@ -347,7 +347,7 @@ test_audit_log "audit: rewrite cargo test" \
 
 # Test log format (4 pipe-separated fields)
 rm -f "$AUDIT_TMPDIR/hook-audit.log"
-input_json=$(jq -n --arg cmd "git status" '{"tool_name":"Bash","tool_input":{"command":$cmd}}')
+input_json=$(jq -n --arg cmd "git status" '{"tool_name":"run_shell_command","tool_input":{"command":$cmd}}')
 echo "$input_json" | RTK_HOOK_AUDIT=1 RTK_AUDIT_DIR="$AUDIT_TMPDIR" bash "$HOOK" 2>/dev/null || true
 TOTAL=$((TOTAL + 1))
 log_line=$(cat "$AUDIT_TMPDIR/hook-audit.log" 2>/dev/null || echo "")
@@ -363,7 +363,7 @@ fi
 
 # Test no log when RTK_HOOK_AUDIT is unset
 rm -f "$AUDIT_TMPDIR/hook-audit.log"
-input_json=$(jq -n --arg cmd "git status" '{"tool_name":"Bash","tool_input":{"command":$cmd}}')
+input_json=$(jq -n --arg cmd "git status" '{"tool_name":"run_shell_command","tool_input":{"command":$cmd}}')
 echo "$input_json" | RTK_AUDIT_DIR="$AUDIT_TMPDIR" bash "$HOOK" 2>/dev/null || true
 TOTAL=$((TOTAL + 1))
 if [ ! -f "$AUDIT_TMPDIR/hook-audit.log" ]; then
