@@ -346,6 +346,27 @@ section "Config & Init"
 assert_ok      "rtk config"                   rtk config
 assert_ok      "rtk init --show"              rtk init --show
 
+section "Init Gemini (global)"
+
+# Setup temporary home for gemini test
+TEST_HOME_GEMINI=$(mktemp -d)
+OLD_HOME=$HOME
+export HOME=$TEST_HOME_GEMINI
+
+assert_ok      "rtk init -g --gemini"         rtk init -g --gemini
+if [ -f "$HOME/.gemini/GEMINI.md" ] && [ -f "$HOME/.gemini/settings.json" ]; then
+    PASS=$((PASS + 1))
+    printf "  ${GREEN}PASS${NC}  %s\n" "rtk init gemini files exist"
+else
+    FAIL=$((FAIL + 1))
+    FAILURES+=("rtk init gemini files exist")
+    printf "  ${RED}FAIL${NC}  %s\n" "rtk init gemini files exist"
+fi
+
+# Cleanup
+export HOME=$OLD_HOME
+rm -rf "$TEST_HOME_GEMINI"
+
 # ── 22. Wget ─────────────────────────────────────────
 
 section "Wget"

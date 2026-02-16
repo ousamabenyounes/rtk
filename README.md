@@ -99,11 +99,17 @@ rtk gain        # Should show token savings stats
 ## Quick Start
 
 ```bash
-# 1. Install hook for Claude Code (recommended)
-rtk init --global
-# Follow instructions to register in ~/.claude/settings.json
+# 1. Verify installation
+rtk gain  # Must show token stats, not "command not found"
 
-# 2. Restart Claude Code, then test
+# 2. Initialize (RECOMMENDED: hook-first mode)
+rtk init --global           # For Claude Code
+rtk init --global --gemini  # For Gemini CLI
+# → Installs hook + creates slim RTK.md (10 lines, 99.5% token savings)
+# → For Claude: Follow instructions to patch ~/.claude/settings.json
+# → For Gemini: Automatically patches ~/.gemini/settings.json
+
+# 3. Restart Claude Code / Gemini CLI, then test
 git status  # Automatically rewritten to rtk git status
 ```
 

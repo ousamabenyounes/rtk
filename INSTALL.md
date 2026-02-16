@@ -107,7 +107,26 @@ rtk init -g --no-patch      # Print manual instructions instead
 rtk init --show  # Check hook is installed and executable
 ```
 
-**Token savings**: ~99.5% reduction (2000 tokens → 10 tokens in context)
+### Gemini CLI Setup
+
+RTK integrates with Gemini CLI via a **BeforeTool hook** that automatically rewrites commands:
+
+```bash
+rtk init -g --gemini
+# → Installs ~/.gemini/hooks/rtk-rewrite.sh
+# → Creates ~/.gemini/RTK.md (command reference)
+# → Creates ~/.gemini/GEMINI.md (usage guide)
+# → Patches ~/.gemini/settings.json (registers hook)
+```
+
+**Verify installation:**
+```bash
+gemini /hooks  # Should show "rtk-rewrite" under BeforeTool
+```
+
+**Token savings**: 70-90% reduction on git, npm, file operations.
+
+**How it works**: The hook intercepts `run_shell_command` tool calls and rewrites them to their `rtk` equivalents before execution. Gemini never sees the original command.
 
 **What is settings.json?**
 Claude Code's hook registry. RTK adds a PreToolUse hook that rewrites commands transparently. Without this, Claude won't invoke the hook automatically.

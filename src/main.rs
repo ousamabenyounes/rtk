@@ -313,6 +313,10 @@ enum Commands {
         #[arg(short, long)]
         global: bool,
 
+        /// Initialize for Gemini instead of Claude
+        #[arg(long)]
+        gemini: bool,
+
         /// Show current configuration
         #[arg(long)]
         show: bool,
@@ -1486,6 +1490,7 @@ fn main() -> Result<()> {
 
         Commands::Init {
             global,
+            gemini,
             show,
             claude_md,
             hook_only,
@@ -1505,7 +1510,7 @@ fn main() -> Result<()> {
                 } else {
                     init::PatchMode::Ask
                 };
-                init::run(global, claude_md, hook_only, patch_mode, cli.verbose)?;
+                init::run(global, gemini, claude_md, hook_only, patch_mode, cli.verbose)?;
             }
         }
 
