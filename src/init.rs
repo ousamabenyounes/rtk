@@ -7,6 +7,93 @@ use tempfile::NamedTempFile;
 // Embedded hook script (guards before set -euo pipefail)
 const REWRITE_HOOK: &str = include_str!("../hooks/rtk-rewrite.sh");
 
+const REWRITE_GEMINI_HOOK: &str = r##"#!/usr/bin/env bash
+# ~/.gemini/hooks/rtk-rewrite.sh
+# Hook BeforeTool pour réécrire les commandes shell en leur équivalent rtk
+
+# Lire l'input JSON depuis stdin
+input=$(cat)
+
+# Extraire la commande via jq
+tool_name=$(echo "$input" | jq -r '.tool_name // ""')
+tool_input=$(echo "$input" | jq -r '.tool_input // {}')
+
+# Si ce n'est pas run_shell_command, ignorer
+if [ "$tool_name" != "run_shell_command" ]; then
+    echo '{"decision": "allow"}'
+    exit 0
+fi
+
+# Extraire la commande shell
+command=$(echo "$tool_input" | jq -r '.command // ""')
+
+# Log debug (stderr seulement)
+# echo "[rtk-rewrite] Original command: $command" >&2
+
+# Mappings de commandes (identique à la logique Claude Code)
+case "$command" in
+    git\ status*|git\ diff*|git\ log*|git\ add*|git\ commit*|git\ push*|git\ pull*|git\ branch*|git\ fetch*|git\ stash*)
+        new_cmd="rtk ${command}"
+        ;;
+    cat\ *)
+        new_cmd="rtk read ${command#cat }"
+        ;;
+    "grep "*|"rg "*)
+        new_cmd="rtk ${command}"
+        ;;
+    ls*)
+        new_cmd="rtk ls${command#ls}"
+        ;;
+    npm\ run\ *|npm\ test*|pnpm\ test*)
+        new_cmd="rtk ${command}"
+        ;;
+    tsc*|npx\ tsc*|pnpm\ tsc*)
+        new_cmd="rtk tsc"
+        ;;
+    eslint*|npx\ eslint*|pnpm\ lint*)
+        new_cmd="rtk lint"
+        ;;
+    vitest*|playwright*|prettier*)
+        new_cmd="rtk ${command}"
+        ;;
+    docker\ ps*|docker\ images*|docker\ logs*)
+        new_cmd="rtk docker ${command#docker }"
+        ;;
+    kubectl\ get*|kubectl\ logs*)
+        new_cmd="rtk kubectl ${command#kubectl }"
+        ;;
+    curl\ *|wget\ *)
+        new_cmd="rtk ${command}"
+        ;;
+    rtk\ *)
+        # Déjà une commande rtk, ne pas réécrire
+        echo '{"decision": "allow"}'
+        exit 0
+        ;;
+    *)
+        # Commande non reconnue, laisser passer
+        echo '{"decision": "allow"}'
+        exit 0
+        ;;
+esac
+
+# Log de la transformation (stderr)
+# echo "[rtk-rewrite] Rewritten to: $new_cmd" >&2
+
+# Retourner le JSON avec la commande modifiée
+cat <<EOF
+{
+  "decision": "allow",
+  "updatedInput": {
+    "command": "$new_cmd"
+  },
+  "systemMessage": "Command rewritten by RTK hook"
+}
+EOF
+
+exit 0
+"##;
+
 // Embedded slim RTK awareness instructions
 const RTK_SLIM: &str = include_str!("../hooks/rtk-awareness.md");
 
@@ -163,14 +250,70 @@ Overall average: **60-90% token reduction** on common development operations.
 <!-- /rtk-instructions -->
 "##;
 
+const GEMINI_MD: &str = r##"<!-- rtk-instructions v2 -->
+# RTK Usage Guide for Gemini CLI
+
+## What is RTK?
+RTK (Rust Token Killer) reduces AI token consumption by 70-90% on command outputs.
+
+## How it works with Gemini CLI
+RTK is integrated via a **BeforeTool hook** that automatically rewrites shell commands.
+Configuration: `~/.gemini/settings.json` → `hooks.BeforeTool`
+
+## Command Mappings (Auto-Rewrite)
+When you (or Gemini) run these commands, they're automatically rewritten:
+
+### Git
+- `git status/diff/log/add/commit/push/pull/branch/fetch/stash` → `rtk git <cmd>`
+
+### Files
+- `cat <file>` → `rtk read <file>`
+- `grep/rg <pattern>` → `rtk grep <pattern>`
+- `ls` → `rtk ls`
+
+### JavaScript/TypeScript
+- `npm run <script>` → `rtk npm <script>`
+- `npm test` → `rtk npm test`
+- `pnpm test` → `rtk vitest run`
+- `tsc/npx tsc` → `rtk tsc`
+- `eslint/npx eslint` → `rtk lint`
+- `prettier` → `rtk prettier`
+- `vitest/playwright` → `rtk <tool>`
+
+### Containers
+- `docker ps/images/logs` → `rtk docker <cmd>`
+- `kubectl get/logs` → `rtk kubectl <cmd>`
+
+### Network
+- `curl` → `rtk curl`
+- `wget` → `rtk wget`
+
+## Token Savings
+- Standard `git status`: ~150 tokens
+- RTK `rtk git status`: ~15 tokens (90% reduction)
+
+## Verify Hook Status
+Run: `gemini /hooks` to see active hooks.
+RTK hook should appear as "rtk-rewrite" under BeforeTool.
+
+## See Also
+- `~/.gemini/RTK.md` - Full RTK command reference
+- `~/.gemini/hooks/rtk-rewrite.sh` - Hook implementation
+<!-- /rtk-instructions -->
+"##;
+
 /// Main entry point for `rtk init`
 pub fn run(
     global: bool,
+    gemini: bool,
     claude_md: bool,
     hook_only: bool,
     patch_mode: PatchMode,
     verbose: u8,
 ) -> Result<()> {
+    if gemini {
+        return run_gemini_mode(global, verbose);
+    }
     // Mode selection
     match (claude_md, hook_only) {
         (true, _) => run_claude_md_mode(global, verbose),
@@ -191,18 +334,18 @@ fn prepare_hook_paths() -> Result<(PathBuf, PathBuf)> {
 
 /// Write hook file if missing or outdated, return true if changed
 #[cfg(unix)]
-fn ensure_hook_installed(hook_path: &Path, verbose: u8) -> Result<bool> {
+fn ensure_hook_installed(hook_path: &Path, hook_content: &str, verbose: u8) -> Result<bool> {
     let changed = if hook_path.exists() {
         let existing = fs::read_to_string(hook_path)
             .with_context(|| format!("Failed to read existing hook: {}", hook_path.display()))?;
 
-        if existing == REWRITE_HOOK {
+        if existing == hook_content {
             if verbose > 0 {
                 eprintln!("Hook already up to date: {}", hook_path.display());
             }
             false
         } else {
-            fs::write(hook_path, REWRITE_HOOK)
+            fs::write(hook_path, hook_content)
                 .with_context(|| format!("Failed to write hook to {}", hook_path.display()))?;
             if verbose > 0 {
                 eprintln!("Updated hook: {}", hook_path.display());
@@ -210,7 +353,7 @@ fn ensure_hook_installed(hook_path: &Path, verbose: u8) -> Result<bool> {
             true
         }
     } else {
-        fs::write(hook_path, REWRITE_HOOK)
+        fs::write(hook_path, hook_content)
             .with_context(|| format!("Failed to write hook to {}", hook_path.display()))?;
         if verbose > 0 {
             eprintln!("Created hook: {}", hook_path.display());
@@ -405,26 +548,24 @@ pub fn uninstall(global: bool, verbose: u8) -> Result<()> {
         anyhow::bail!("Uninstall only works with --global flag. For local projects, manually remove RTK from CLAUDE.md");
     }
 
-    let claude_dir = resolve_claude_dir()?;
     let mut removed = Vec::new();
 
-    // 1. Remove hook file
-    let hook_path = claude_dir.join("hooks").join("rtk-rewrite.sh");
-    if hook_path.exists() {
-        fs::remove_file(&hook_path)
-            .with_context(|| format!("Failed to remove hook: {}", hook_path.display()))?;
-        removed.push(format!("Hook: {}", hook_path.display()));
+    // 1. Claude artifacts
+    let claude_dir = resolve_claude_dir()?;
+    let claude_hook_path = claude_dir.join("hooks").join("rtk-rewrite.sh");
+    if claude_hook_path.exists() {
+        fs::remove_file(&claude_hook_path)
+            .with_context(|| format!("Failed to remove hook: {}", claude_hook_path.display()))?;
+        removed.push(format!("Claude Hook: {}", claude_hook_path.display()));
     }
 
-    // 2. Remove RTK.md
     let rtk_md_path = claude_dir.join("RTK.md");
     if rtk_md_path.exists() {
         fs::remove_file(&rtk_md_path)
             .with_context(|| format!("Failed to remove RTK.md: {}", rtk_md_path.display()))?;
-        removed.push(format!("RTK.md: {}", rtk_md_path.display()));
+        removed.push(format!("Claude RTK.md: {}", rtk_md_path.display()));
     }
 
-    // 3. Remove @RTK.md reference from CLAUDE.md
     let claude_md_path = claude_dir.join("CLAUDE.md");
     if claude_md_path.exists() {
         let content = fs::read_to_string(&claude_md_path)
@@ -437,19 +578,70 @@ pub fn uninstall(global: bool, verbose: u8) -> Result<()> {
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            // Clean up double blanks
             let cleaned = clean_double_blanks(&new_content);
 
             fs::write(&claude_md_path, cleaned).with_context(|| {
                 format!("Failed to write CLAUDE.md: {}", claude_md_path.display())
             })?;
-            removed.push(format!("CLAUDE.md: removed @RTK.md reference"));
+            removed.push(format!("Claude CLAUDE.md: removed @RTK.md reference"));
         }
     }
 
-    // 4. Remove hook entry from settings.json
     if remove_hook_from_settings(verbose)? {
-        removed.push("settings.json: removed RTK hook entry".to_string());
+        removed.push("Claude settings.json: removed RTK hook entry".to_string());
+    }
+
+    // 2. Gemini artifacts
+    let gemini_dir = resolve_gemini_dir()?;
+    let gemini_hook_path = gemini_dir.join("hooks").join("rtk-rewrite.sh");
+    if gemini_hook_path.exists() {
+        fs::remove_file(&gemini_hook_path)
+            .with_context(|| format!("Failed to remove hook: {}", gemini_hook_path.display()))?;
+        removed.push(format!("Gemini Hook: {}", gemini_hook_path.display()));
+    }
+
+    let gemini_rtk_md = gemini_dir.join("RTK.md");
+    if gemini_rtk_md.exists() {
+        fs::remove_file(&gemini_rtk_md)
+            .with_context(|| format!("Failed to remove RTK.md: {}", gemini_rtk_md.display()))?;
+        removed.push(format!("Gemini RTK.md: {}", gemini_rtk_md.display()));
+    }
+
+    let gemini_md = gemini_dir.join("GEMINI.md");
+    if gemini_md.exists() {
+        fs::remove_file(&gemini_md)
+            .with_context(|| format!("Failed to remove GEMINI.md: {}", gemini_md.display()))?;
+        removed.push(format!("Gemini GEMINI.md: {}", gemini_md.display()));
+    }
+
+    let settings_path = gemini_dir.join("settings.json");
+    if settings_path.exists() {
+        let content = fs::read_to_string(&settings_path)?;
+        if let Ok(mut settings) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(before_tool) = settings
+                .get_mut("hooks")
+                .and_then(|h| h.get_mut("BeforeTool"))
+                .and_then(|bt| bt.as_array_mut())
+            {
+                let original_len = before_tool.len();
+                before_tool.retain(|entry| {
+                    entry
+                        .get("hooks")
+                        .and_then(|h| h.as_array())
+                        .map(|hooks| {
+                            !hooks
+                                .iter()
+                                .any(|h| h.get("name").and_then(|n| n.as_str()) == Some("rtk-rewrite"))
+                        })
+                        .unwrap_or(true)
+                });
+
+                if before_tool.len() < original_len {
+                    fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
+                    removed.push(format!("Gemini settings.json: removed RTK hook"));
+                }
+            }
+        }
     }
 
     // Report results
@@ -460,7 +652,7 @@ pub fn uninstall(global: bool, verbose: u8) -> Result<()> {
         for item in removed {
             println!("  - {}", item);
         }
-        println!("\nRestart Claude Code to apply changes.");
+        println!("\nRestart your AI tool to apply changes.");
     }
 
     Ok(())
@@ -660,7 +852,7 @@ fn run_default_mode(global: bool, patch_mode: PatchMode, verbose: u8) -> Result<
 
     // 1. Prepare hook directory and install hook
     let (_hook_dir, hook_path) = prepare_hook_paths()?;
-    ensure_hook_installed(&hook_path, verbose)?;
+    ensure_hook_installed(&hook_path, REWRITE_HOOK, verbose)?;
 
     // 2. Write RTK.md
     write_if_changed(&rtk_md_path, RTK_SLIM, "RTK.md", verbose)?;
@@ -717,7 +909,7 @@ fn run_hook_only_mode(global: bool, patch_mode: PatchMode, verbose: u8) -> Resul
 
     // Prepare and install hook
     let (_hook_dir, hook_path) = prepare_hook_paths()?;
-    ensure_hook_installed(&hook_path, verbose)?;
+    ensure_hook_installed(&hook_path, REWRITE_HOOK, verbose)?;
 
     println!("\nRTK hook installed (hook-only mode).\n");
     println!("  Hook: {}", hook_path.display());
@@ -980,6 +1172,166 @@ fn resolve_claude_dir() -> Result<PathBuf> {
         .context("Cannot determine home directory. Is $HOME set?")
 }
 
+fn resolve_gemini_dir() -> Result<PathBuf> {
+    dirs::home_dir()
+        .map(|h| h.join(".gemini"))
+        .context("Cannot determine home directory. Is $HOME set?")
+}
+
+/// Patch ~/.gemini/settings.json pour ajouter le hook RTK
+fn patch_gemini_settings_json(gemini_dir: &Path, hook_path: &Path, verbose: u8) -> Result<bool> {
+    let settings_path = gemini_dir.join("settings.json");
+
+    // Charger ou créer le fichier
+    let mut settings: serde_json::Value = if settings_path.exists() {
+        let content = fs::read_to_string(&settings_path)?;
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    // S'assurer que hooks.BeforeTool existe
+    if settings.get("hooks").is_none() {
+        if let Some(obj) = settings.as_object_mut() {
+            obj.insert("hooks".to_string(), serde_json::json!({}));
+        }
+    }
+    if let Some(hooks) = settings.get_mut("hooks") {
+        if hooks.get("BeforeTool").is_none() {
+            if let Some(obj) = hooks.as_object_mut() {
+                obj.insert("BeforeTool".to_string(), serde_json::json!([]));
+            }
+        }
+    }
+
+    let before_tool = settings
+        .get_mut("hooks")
+        .and_then(|h| h.get_mut("BeforeTool"))
+        .and_then(|bt| bt.as_array_mut())
+        .context("hooks.BeforeTool is not an array")?;
+
+    // Vérifier si le hook RTK existe déjà
+    let hook_exists = before_tool.iter().any(|entry| {
+        entry
+            .get("hooks")
+            .and_then(|h| h.as_array())
+            .map(|hooks| {
+                hooks
+                    .iter()
+                    .any(|h| h.get("name").and_then(|n| n.as_str()) == Some("rtk-rewrite"))
+            })
+            .unwrap_or(false)
+    });
+
+    if hook_exists {
+        if verbose > 0 {
+            eprintln!("RTK hook already present in settings.json");
+        }
+        return Ok(false);
+    }
+
+    // Ajouter le hook pour run_shell_command
+    before_tool.push(serde_json::json!({
+        "matcher": "run_shell_command",
+        "hooks": [
+            {
+                "name": "rtk-rewrite",
+                "type": "command",
+                "command": hook_path.display().to_string(),
+                "description": "Rewrite shell commands to their rtk equivalents",
+                "timeout": 5000
+            }
+        ]
+    }));
+
+    // Écrire le fichier
+    let pretty_json = serde_json::to_string_pretty(&settings)?;
+    fs::write(&settings_path, pretty_json)
+        .with_context(|| format!("Failed to write settings.json: {}", settings_path.display()))?;
+
+    if verbose > 0 {
+        eprintln!("Added RTK hook to settings.json: {}", settings_path.display());
+    }
+
+    Ok(true)
+}
+
+fn run_gemini_mode(global: bool, verbose: u8) -> Result<()> {
+    if !global {
+        anyhow::bail!(
+            "Gemini initialization currently only supports --global mode.\n\
+             Run: rtk init -g --gemini"
+        );
+    }
+
+    let gemini_dir = resolve_gemini_dir()?;
+    fs::create_dir_all(&gemini_dir)
+        .with_context(|| format!("Failed to create gemini directory: {}", gemini_dir.display()))?;
+
+    let hook_dir = gemini_dir.join("hooks");
+    fs::create_dir_all(&hook_dir)
+        .with_context(|| format!("Failed to create hook directory: {}", hook_dir.display()))?;
+
+    let hook_path = hook_dir.join("rtk-rewrite.sh");
+    let rtk_md_path = gemini_dir.join("RTK.md");
+    let gemini_md_path = gemini_dir.join("GEMINI.md");
+
+    // 1. Install hook
+    ensure_hook_installed(&hook_path, REWRITE_GEMINI_HOOK, verbose)?;
+
+    // 2. Write RTK.md (slim version)
+    write_if_changed(&rtk_md_path, RTK_SLIM, "RTK.md", verbose)?;
+
+    // 3. Patch GEMINI.md (upsert logic to avoid overwriting user content)
+    let existing_content = if gemini_md_path.exists() {
+        fs::read_to_string(&gemini_md_path)?
+    } else {
+        String::new()
+    };
+
+    let (new_content, action) = upsert_rtk_block(&existing_content, GEMINI_MD);
+
+    match action {
+        RtkBlockUpsert::Unchanged => {
+            if verbose > 0 {
+                eprintln!("GEMINI.md already up to date");
+            }
+        }
+        RtkBlockUpsert::Malformed => {
+            eprintln!("⚠️  Warning: GEMINI.md contains a malformed RTK block.");
+            eprintln!("    Skipping update to avoid corruption.");
+        }
+        _ => {
+            fs::write(&gemini_md_path, new_content)?;
+            if verbose > 0 {
+                let act = if action == RtkBlockUpsert::Added { "Created" } else { "Updated" };
+                eprintln!("{} GEMINI.md", act);
+            }
+        }
+    }
+
+    // 4. Patch settings.json pour activer le hook
+    let settings_patched = patch_gemini_settings_json(&gemini_dir, &hook_path, verbose)?;
+
+    println!("\n✅ RTK initialized for Gemini CLI (global).\n");
+    println!("  Hook:          {}", hook_path.display());
+    println!("  RTK.md:        {}", rtk_md_path.display());
+    println!("  GEMINI.md:     {}", gemini_md_path.display());
+    println!(
+        "  settings.json: {}",
+        if settings_patched {
+            "patched ✓"
+        } else {
+            "already configured"
+        }
+    );
+
+    println!("\n🔄 Restart Gemini CLI to activate the hook.");
+    println!("   Verify with: gemini /hooks\n");
+
+    Ok(())
+}
+
 /// Show current rtk configuration
 pub fn show_config() -> Result<()> {
     let claude_dir = resolve_claude_dir()?;
@@ -1081,9 +1433,34 @@ pub fn show_config() -> Result<()> {
         println!("⚪ settings.json: not found");
     }
 
+    println!("\n🤖 Gemini Configuration:");
+    let gemini_dir = resolve_gemini_dir()?;
+    let gemini_hook_path = gemini_dir.join("hooks").join("rtk-rewrite.sh");
+    let gemini_rtk_md = gemini_dir.join("RTK.md");
+    let gemini_md = gemini_dir.join("GEMINI.md");
+
+    if gemini_hook_path.exists() {
+        println!("✅ Hook: {}", gemini_hook_path.display());
+    } else {
+        println!("⚪ Hook: not found");
+    }
+
+    if gemini_rtk_md.exists() {
+        println!("✅ RTK.md: {}", gemini_rtk_md.display());
+    } else {
+        println!("⚪ RTK.md: not found");
+    }
+
+    if gemini_md.exists() {
+        println!("✅ GEMINI.md: {}", gemini_md.display());
+    } else {
+        println!("⚪ GEMINI.md: not found");
+    }
+
     println!("\nUsage:");
     println!("  rtk init              # Full injection into local CLAUDE.md");
     println!("  rtk init -g           # Hook + RTK.md + @RTK.md + settings.json (recommended)");
+    println!("  rtk init -g --gemini  # Initialize for Gemini CLI");
     println!("  rtk init -g --auto-patch    # Same as above but no prompt");
     println!("  rtk init -g --no-patch      # Skip settings.json (manual setup)");
     println!("  rtk init -g --uninstall     # Remove all RTK artifacts");
@@ -1270,6 +1647,13 @@ More notes
         let content = fs::read_to_string(&claude_md).unwrap();
 
         assert!(content.contains("<!-- rtk-instructions"));
+    }
+
+    #[test]
+    fn test_gemini_mode_content() {
+        assert!(GEMINI_MD.contains("# RTK Usage Guide for Gemini CLI"));
+        assert!(GEMINI_MD.contains("rtk git"));
+        assert!(GEMINI_MD.contains("~/.gemini/RTK.md"));
     }
 
     // Tests for hook_already_present()

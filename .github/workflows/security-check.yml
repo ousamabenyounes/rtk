@@ -118,6 +118,14 @@ jobs:
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
 
+      - name: Build
+        run: cargo build
+
+      - name: Smoke Tests
+        run: |
+          export PATH=$PATH:$(pwd)/target/debug
+          ./scripts/test-all.sh
+
       - name: Summary verdict
         run: |
           echo "---" >> $GITHUB_STEP_SUMMARY

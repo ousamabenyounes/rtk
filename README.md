@@ -106,10 +106,12 @@ Download from [rtk-ai/releases](https://github.com/rtk-ai/rtk/releases):
 # 1. Verify installation
 rtk gain  # Must show token stats, not "command not found"
 
-# 2. Initialize for Claude Code (RECOMMENDED: hook-first mode)
-rtk init --global
+# 2. Initialize (RECOMMENDED: hook-first mode)
+rtk init --global           # For Claude Code
+rtk init --global --gemini  # For Gemini CLI
 # → Installs hook + creates slim RTK.md (10 lines, 99.5% token savings)
-# → Follow printed instructions to add hook to ~/.claude/settings.json
+# → For Claude: Follow instructions to patch ~/.claude/settings.json
+# → For Gemini: Automatically patches ~/.gemini/settings.json
 
 # 3. Test it works
 rtk git status  # Should show ultra-compact output
