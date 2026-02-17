@@ -35,6 +35,8 @@
 
 rtk filters and compresses command outputs before they reach your LLM context. Single Rust binary, zero dependencies, <10ms overhead.
 
+> **Name collision warning:** There are TWO different "rtk" projects. This is **Rust Token Killer** (`rtk-ai/rtk`). If `rtk gain` doesn't work, you may have installed `reachingforthejack/rtk` (Rust Type Kit) instead.
+
 ## Token Savings (30-min Claude Code Session)
 
 | Operation | Frequency | Standard | rtk | Savings |
