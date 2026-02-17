@@ -176,7 +176,7 @@ Database: ~/.local/share/rtk/history.db
 
 ## Module Organization
 
-### Complete Module Map (30 Modules)
+### Complete Module Map (48 Modules)
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -240,12 +240,12 @@ SHARED            utils.rs          Helpers                N/A        ✓
                   tee.rs            Full output recovery   N/A        ✓
 ```
 
-**Total: 47 modules** (29 command modules + 18 infrastructure modules)
+**Total: 48 modules** (29 command modules + 19 infrastructure modules)
 
 ### Module Count Breakdown
 
 - **Command Modules**: 29 (directly exposed to users)
-- **Infrastructure Modules**: 18 (utils, filter, tracking, tee, config, init, gain, etc.)
+- **Infrastructure Modules**: 19 (utils, filter, tracking, tee, config, init, gain, etc.)
 - **Git Commands**: 7 operations (status, diff, log, add, commit, push, branch/checkout)
 - **JS/TS Tooling**: 8 modules (modern frontend/fullstack development)
 - **Python Tooling**: 3 modules (ruff, pytest, pip)
@@ -1433,6 +1433,6 @@ When implementing a new command, consider:
 
 ---
 
-**Last Updated**: 2026-02-12
+**Last Updated**: 2026-02-17
 **Architecture Version**: 2.1
-**rtk Version**: 0.18.0
+**rtk Version**: 0.20.1
