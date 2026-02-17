@@ -9,28 +9,28 @@ const REWRITE_HOOK: &str = include_str!("../hooks/rtk-rewrite.sh");
 
 const REWRITE_GEMINI_HOOK: &str = r##"#!/usr/bin/env bash
 # ~/.gemini/hooks/rtk-rewrite.sh
-# Hook BeforeTool pour réécrire les commandes shell en leur équivalent rtk
+# Hook BeforeTool to rewrite shell commands to their rtk equivalents
 
-# Lire l'input JSON depuis stdin
+# Read JSON input from stdin
 input=$(cat)
 
-# Extraire la commande via jq
+# Extract command via jq
 tool_name=$(echo "$input" | jq -r '.tool_name // ""')
 tool_input=$(echo "$input" | jq -r '.tool_input // {}')
 
-# Si ce n'est pas run_shell_command, ignorer
+# Skip if not run_shell_command
 if [ "$tool_name" != "run_shell_command" ]; then
     echo '{"decision": "allow"}'
     exit 0
 fi
 
-# Extraire la commande shell
+# Extract the shell command
 command=$(echo "$tool_input" | jq -r '.command // ""')
 
-# Log debug (stderr seulement)
+# Debug log (stderr only)
 # echo "[rtk-rewrite] Original command: $command" >&2
 
-# Mappings de commandes (identique à la logique Claude Code)
+# Command mappings (same logic as Claude Code hook)
 case "$command" in
     git\ status*|git\ diff*|git\ log*|git\ add*|git\ commit*|git\ push*|git\ pull*|git\ branch*|git\ fetch*|git\ stash*)
         new_cmd="rtk ${command}"
@@ -66,21 +66,21 @@ case "$command" in
         new_cmd="rtk ${command}"
         ;;
     rtk\ *)
-        # Déjà une commande rtk, ne pas réécrire
+        # Already an rtk command, skip rewrite
         echo '{"decision": "allow"}'
         exit 0
         ;;
     *)
-        # Commande non reconnue, laisser passer
+        # Unknown command, allow as-is
         echo '{"decision": "allow"}'
         exit 0
         ;;
 esac
 
-# Log de la transformation (stderr)
+# Log transformation (stderr)
 # echo "[rtk-rewrite] Rewritten to: $new_cmd" >&2
 
-# Retourner le JSON avec la commande modifiée
+# Return JSON with modified command
 cat <<EOF
 {
   "decision": "allow",
@@ -1178,11 +1178,11 @@ fn resolve_gemini_dir() -> Result<PathBuf> {
         .context("Cannot determine home directory. Is $HOME set?")
 }
 
-/// Patch ~/.gemini/settings.json pour ajouter le hook RTK
+/// Patch ~/.gemini/settings.json to add RTK hook
 fn patch_gemini_settings_json(gemini_dir: &Path, hook_path: &Path, verbose: u8) -> Result<bool> {
     let settings_path = gemini_dir.join("settings.json");
 
-    // Charger ou créer le fichier
+    // Load or create the file
     let mut settings: serde_json::Value = if settings_path.exists() {
         let content = fs::read_to_string(&settings_path)?;
         serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
@@ -1190,7 +1190,7 @@ fn patch_gemini_settings_json(gemini_dir: &Path, hook_path: &Path, verbose: u8) 
         serde_json::json!({})
     };
 
-    // S'assurer que hooks.BeforeTool existe
+    // Ensure hooks.BeforeTool exists
     if settings.get("hooks").is_none() {
         if let Some(obj) = settings.as_object_mut() {
             obj.insert("hooks".to_string(), serde_json::json!({}));
@@ -1210,7 +1210,7 @@ fn patch_gemini_settings_json(gemini_dir: &Path, hook_path: &Path, verbose: u8) 
         .and_then(|bt| bt.as_array_mut())
         .context("hooks.BeforeTool is not an array")?;
 
-    // Vérifier si le hook RTK existe déjà
+    // Check if RTK hook already exists
     let hook_exists = before_tool.iter().any(|entry| {
         entry
             .get("hooks")
@@ -1230,7 +1230,7 @@ fn patch_gemini_settings_json(gemini_dir: &Path, hook_path: &Path, verbose: u8) 
         return Ok(false);
     }
 
-    // Ajouter le hook pour run_shell_command
+    // Add hook for run_shell_command
     before_tool.push(serde_json::json!({
         "matcher": "run_shell_command",
         "hooks": [
@@ -1244,7 +1244,7 @@ fn patch_gemini_settings_json(gemini_dir: &Path, hook_path: &Path, verbose: u8) 
         ]
     }));
 
-    // Écrire le fichier
+    // Write the file
     let pretty_json = serde_json::to_string_pretty(&settings)?;
     fs::write(&settings_path, pretty_json)
         .with_context(|| format!("Failed to write settings.json: {}", settings_path.display()))?;
@@ -1310,7 +1310,7 @@ fn run_gemini_mode(global: bool, verbose: u8) -> Result<()> {
         }
     }
 
-    // 4. Patch settings.json pour activer le hook
+    // 4. Patch settings.json to activate the hook
     let settings_patched = patch_gemini_settings_json(&gemini_dir, &hook_path, verbose)?;
 
     println!("\n✅ RTK initialized for Gemini CLI (global).\n");
