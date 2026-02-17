@@ -215,7 +215,7 @@ assert_ok      "rtk cargo build"              rtk cargo build
 assert_ok      "rtk cargo clippy"             rtk cargo clippy
 # cargo test exits non-zero due to pre-existing failures; check output ignoring exit code
 output_cargo_test=$(rtk cargo test 2>&1 || true)
-if echo "$output_cargo_test" | grep -q "FAILURES\|test result:\|passed"; then
+if echo "$output_cargo_test" | grep -qE "FAILURES|test result:|passed"; then
     PASS=$((PASS + 1))
     printf "  ${GREEN}PASS${NC}  %s\n" "rtk cargo test"
 else
@@ -476,7 +476,11 @@ assert_ok      "rtk cc-economics"             rtk cc-economics
 section "Learn"
 
 assert_ok      "rtk learn --help"             rtk learn --help
-assert_ok      "rtk learn (no sessions)"      rtk learn --since 0 2>&1 || true
+if [[ -d "$HOME/.claude/projects" ]]; then
+    assert_ok      "rtk learn (no sessions)"      rtk learn --since 0 2>&1 || true
+else
+    skip_test "rtk learn (no sessions)" "Claude Code not installed"
+fi
 
 # ── 32. Rewrite ───────────────────────────────────────
 
