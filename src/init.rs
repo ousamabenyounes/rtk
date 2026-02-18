@@ -335,24 +335,65 @@ RTK hook should appear as "rtk-rewrite" under BeforeTool.
 <!-- /rtk-instructions -->
 "##;
 
+fn detect_clis() -> (bool, bool) {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let claude_dir = std::path::PathBuf::from(&home).join(".claude");
+    let gemini_dir = std::path::PathBuf::from(&home).join(".gemini");
+    (claude_dir.exists(), gemini_dir.exists())
+}
+
 /// Main entry point for `rtk init`
 pub fn run(
     global: bool,
+    claude: bool,
     gemini: bool,
     claude_md: bool,
     hook_only: bool,
     patch_mode: PatchMode,
     verbose: u8,
 ) -> Result<()> {
+    // 1. Auto-detection mode (global only, no explicit flags)
+    if global && !claude && !gemini {
+        let (has_claude, has_gemini) = detect_clis();
+        if !has_claude && !has_gemini {
+            println!("No CLI detected (~/.claude or ~/.gemini not found).");
+            println!("Use --claude or --gemini to force initialization.");
+            return Ok(());
+        }
+        if has_claude {
+            println!("→ Detected Claude CLI");
+            match (claude_md, hook_only) {
+                (true, _) => run_claude_md_mode(global, verbose)?,
+                (false, true) => run_hook_only_mode(global, patch_mode, verbose)?,
+                (false, false) => run_default_mode(global, patch_mode, verbose)?,
+            }
+        }
+        if has_gemini {
+            println!("→ Detected Gemini CLI");
+            run_gemini_mode(global, verbose)?;
+        }
+        return Ok(());
+    }
+
+    // 2. Explicit flags mode (or local init)
+    let mut initialized = false;
+
     if gemini {
-        return run_gemini_mode(global, verbose);
+        run_gemini_mode(global, verbose)?;
+        initialized = true;
     }
-    // Mode selection
-    match (claude_md, hook_only) {
-        (true, _) => run_claude_md_mode(global, verbose),
-        (false, true) => run_hook_only_mode(global, patch_mode, verbose),
-        (false, false) => run_default_mode(global, patch_mode, verbose),
+
+    // Claude init (either explicit --claude or default if no --gemini and not global auto-detect)
+    if claude || (!gemini && !global) {
+        match (claude_md, hook_only) {
+            (true, _) => run_claude_md_mode(global, verbose)?,
+            (false, true) => run_hook_only_mode(global, patch_mode, verbose)?,
+            (false, false) => run_default_mode(global, patch_mode, verbose)?,
+        }
+        initialized = true;
     }
+
+    Ok(())
 }
 
 /// Prepare hook directory and return paths (hook_dir, hook_path)
@@ -798,7 +839,6 @@ fn clean_double_blanks(content: &str) -> String {
         if line.trim().is_empty() {
             // Count consecutive blank lines
             let mut blank_count = 0;
-            let start = i;
             while i < lines.len() && lines[i].trim().is_empty() {
                 blank_count += 1;
                 i += 1;
