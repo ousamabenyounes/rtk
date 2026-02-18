@@ -354,6 +354,9 @@ fi
 export HOME=$OLD_HOME
 rm -rf "$TEST_HOME_GEMINI"
 
+section "Auto Detect"
+bash scripts/test-auto-detect.sh
+
 # ── 22. Wget ─────────────────────────────────────────
 
 section "Wget"

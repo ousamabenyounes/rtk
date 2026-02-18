@@ -258,7 +258,11 @@ enum Commands {
         #[arg(short, long)]
         global: bool,
 
-        /// Initialize for Gemini instead of Claude
+        /// Initialize for Claude
+        #[arg(long)]
+        claude: bool,
+
+        /// Initialize for Gemini
         #[arg(long)]
         gemini: bool,
 
@@ -1058,6 +1062,7 @@ fn main() -> Result<()> {
 
         Commands::Init {
             global,
+            claude,
             gemini,
             show,
             claude_md,
@@ -1078,7 +1083,9 @@ fn main() -> Result<()> {
                 } else {
                     init::PatchMode::Ask
                 };
-                init::run(global, gemini, claude_md, hook_only, patch_mode, cli.verbose)?;
+                init::run(
+                    global, claude, gemini, claude_md, hook_only, patch_mode, cli.verbose,
+                )?;
             }
         }
 
