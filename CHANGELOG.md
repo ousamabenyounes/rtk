@@ -5,6 +5,20 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1](https://github.com/rtk-ai/rtk/compare/v0.21.0...v0.21.1) (2026-02-17)
+
+
+### Bug Fixes
+
+* gh run view drops --log-failed, --log, --json flags ([#159](https://github.com/rtk-ai/rtk/issues/159)) ([d196c2d](https://github.com/rtk-ai/rtk/commit/d196c2d2df9b7a807e02ace557a4eea45cfee77d))
+
+## [0.21.0](https://github.com/rtk-ai/rtk/compare/v0.20.1...v0.21.0) (2026-02-17)
+
+
+### Features
+
+* **docker:** add docker compose support ([#110](https://github.com/rtk-ai/rtk/issues/110)) ([510c491](https://github.com/rtk-ai/rtk/commit/510c491238731b71b58923a0f20443ade6df5ae7))
+
 ## [0.20.1](https://github.com/rtk-ai/rtk/compare/v0.20.0...v0.20.1) (2026-02-17)
 
 
