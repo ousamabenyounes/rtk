@@ -241,7 +241,7 @@ SHARED            utils.rs          Helpers                N/A        ✓
 ```
 
 
-**Total: 57 modules** (31 command modules + 26 infrastructure modules)
+**Total: 48 modules** (31 command modules + 17 infrastructure modules)
 
 ### Module Count Breakdown
 
@@ -1436,4 +1436,4 @@ When implementing a new command, consider:
 
 **Last Updated**: 2026-02-17
 **Architecture Version**: 2.1
-**rtk Version**: 0.20.1
+**rtk Version**: 0.21.1
