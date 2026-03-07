@@ -9,92 +9,9 @@ use crate::integrity;
 // Embedded hook script (guards before set -euo pipefail)
 const REWRITE_HOOK: &str = include_str!("../hooks/rtk-rewrite.sh");
 
-const REWRITE_GEMINI_HOOK: &str = r##"#!/usr/bin/env bash
-# ~/.gemini/hooks/rtk-rewrite.sh
-# Hook BeforeTool to rewrite shell commands to their rtk equivalents
-
-# Read JSON input from stdin
-input=$(cat)
-
-# Extract command via jq
-tool_name=$(echo "$input" | jq -r '.tool_name // ""')
-tool_input=$(echo "$input" | jq -r '.tool_input // {}')
-
-# Skip if not run_shell_command
-if [ "$tool_name" != "run_shell_command" ]; then
-    echo '{"decision": "allow"}'
-    exit 0
-fi
-
-# Extract the shell command
-command=$(echo "$tool_input" | jq -r '.command // ""')
-
-# Debug log (stderr only)
-# echo "[rtk-rewrite] Original command: $command" >&2
-
-# Command mappings (same logic as Claude Code hook)
-case "$command" in
-    git\ status*|git\ diff*|git\ log*|git\ add*|git\ commit*|git\ push*|git\ pull*|git\ branch*|git\ fetch*|git\ stash*)
-        new_cmd="rtk ${command}"
-        ;;
-    cat\ *)
-        new_cmd="rtk read ${command#cat }"
-        ;;
-    "grep "*|"rg "*)
-        new_cmd="rtk ${command}"
-        ;;
-    ls*)
-        new_cmd="rtk ls${command#ls}"
-        ;;
-    npm\ run\ *|npm\ test*|pnpm\ test*)
-        new_cmd="rtk ${command}"
-        ;;
-    tsc*|npx\ tsc*|pnpm\ tsc*)
-        new_cmd="rtk tsc"
-        ;;
-    eslint*|npx\ eslint*|pnpm\ lint*)
-        new_cmd="rtk lint"
-        ;;
-    vitest*|playwright*|prettier*)
-        new_cmd="rtk ${command}"
-        ;;
-    docker\ ps*|docker\ images*|docker\ logs*)
-        new_cmd="rtk docker ${command#docker }"
-        ;;
-    kubectl\ get*|kubectl\ logs*)
-        new_cmd="rtk kubectl ${command#kubectl }"
-        ;;
-    curl\ *|wget\ *)
-        new_cmd="rtk ${command}"
-        ;;
-    rtk\ *)
-        # Already an rtk command, skip rewrite
-        echo '{"decision": "allow"}'
-        exit 0
-        ;;
-    *)
-        # Unknown command, allow as-is
-        echo '{"decision": "allow"}'
-        exit 0
-        ;;
-esac
-
-# Log transformation (stderr)
-# echo "[rtk-rewrite] Rewritten to: $new_cmd" >&2
-
-# Return JSON with modified command
-cat <<EOF
-{
-  "decision": "allow",
-  "updatedInput": {
-    "command": "$new_cmd"
-  },
-  "systemMessage": "Command rewritten by RTK hook"
-}
-EOF
-
-exit 0
-"##;
+const REWRITE_GEMINI_HOOK: &str = "#!/usr/bin/env bash\n\
+# RTK Gemini CLI hook - delegates to rtk hook gemini (Rust, no jq needed)\n\
+exec rtk hook gemini\n";
 
 // Embedded slim RTK awareness instructions
 const RTK_SLIM: &str = include_str!("../hooks/rtk-awareness.md");
@@ -718,9 +635,9 @@ pub fn uninstall(global: bool, verbose: u8) -> Result<()> {
                         .get("hooks")
                         .and_then(|h| h.as_array())
                         .map(|hooks| {
-                            !hooks
-                                .iter()
-                                .any(|h| h.get("name").and_then(|n| n.as_str()) == Some("rtk-rewrite"))
+                            !hooks.iter().any(|h| {
+                                h.get("name").and_then(|n| n.as_str()) == Some("rtk-rewrite")
+                            })
                         })
                         .unwrap_or(true)
                 });
@@ -1402,7 +1319,10 @@ fn patch_gemini_settings_json(gemini_dir: &Path, hook_path: &Path, verbose: u8) 
         .with_context(|| format!("Failed to write settings.json: {}", settings_path.display()))?;
 
     if verbose > 0 {
-        eprintln!("Added RTK hook to settings.json: {}", settings_path.display());
+        eprintln!(
+            "Added RTK hook to settings.json: {}",
+            settings_path.display()
+        );
     }
 
     Ok(true)
@@ -1417,8 +1337,12 @@ fn run_gemini_mode(global: bool, verbose: u8) -> Result<()> {
     }
 
     let gemini_dir = resolve_gemini_dir()?;
-    fs::create_dir_all(&gemini_dir)
-        .with_context(|| format!("Failed to create gemini directory: {}", gemini_dir.display()))?;
+    fs::create_dir_all(&gemini_dir).with_context(|| {
+        format!(
+            "Failed to create gemini directory: {}",
+            gemini_dir.display()
+        )
+    })?;
 
     let hook_dir = gemini_dir.join("hooks");
     fs::create_dir_all(&hook_dir)
@@ -1456,7 +1380,11 @@ fn run_gemini_mode(global: bool, verbose: u8) -> Result<()> {
         _ => {
             fs::write(&gemini_md_path, new_content)?;
             if verbose > 0 {
-                let act = if action == RtkBlockUpsert::Added { "Created" } else { "Updated" };
+                let act = if action == RtkBlockUpsert::Added {
+                    "Created"
+                } else {
+                    "Updated"
+                };
                 eprintln!("{} GEMINI.md", act);
             }
         }

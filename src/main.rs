@@ -22,6 +22,7 @@ mod grep_cmd;
 mod gt_cmd;
 mod hook_audit_cmd;
 mod hook_check;
+mod hook_cmd;
 mod init;
 mod integrity;
 mod json_cmd;
@@ -618,6 +619,12 @@ enum Commands {
         args: Vec<String>,
     },
 
+    /// Hook processors for LLM CLI tools (Gemini CLI, etc.)
+    Hook {
+        #[command(subcommand)]
+        command: HookCommands,
+    },
+
     /// Show hook rewrite audit metrics (requires RTK_HOOK_AUDIT=1)
     #[command(name = "hook-audit")]
     HookAudit {
@@ -1117,6 +1124,12 @@ enum GtCommands {
     Other(Vec<OsString>),
 }
 
+#[derive(Subcommand)]
+enum HookCommands {
+    /// Gemini CLI BeforeTool hook: reads JSON stdin, rewrites commands, outputs JSON
+    Gemini,
+}
+
 fn main() -> Result<()> {
     // Fire-and-forget telemetry ping (1/day, non-blocking)
     telemetry::maybe_ping();
@@ -1516,7 +1529,13 @@ fn main() -> Result<()> {
                     init::PatchMode::Ask
                 };
                 init::run(
-                    global, claude, gemini, claude_md, hook_only, patch_mode, cli.verbose,
+                    global,
+                    claude,
+                    gemini,
+                    claude_md,
+                    hook_only,
+                    patch_mode,
+                    cli.verbose,
                 )?;
             }
         }
@@ -1847,6 +1866,12 @@ fn main() -> Result<()> {
         Commands::GolangciLint { args } => {
             golangci_cmd::run(&args, cli.verbose)?;
         }
+
+        Commands::Hook { command } => match command {
+            HookCommands::Gemini => {
+                hook_cmd::run_gemini()?;
+            }
+        },
 
         Commands::HookAudit { since } => {
             hook_audit_cmd::run(since, cli.verbose)?;
