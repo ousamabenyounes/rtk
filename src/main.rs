@@ -1235,6 +1235,22 @@ fn main() -> Result<()> {
     // Fire-and-forget telemetry ping (1/day, non-blocking)
     core::telemetry::maybe_ping();
 
+    // Intercept `pnpm --filter`/`-F` before Clap parsing.
+    // pnpm's --filter is a global flag that precedes the subcommand, which Clap
+    // cannot handle in a subcommand enum. Route directly to pnpm passthrough.
+    {
+        let raw_args: Vec<String> = std::env::args().skip(1).collect();
+        if raw_args.first().map(|s| s.as_str()) == Some("pnpm")
+            && raw_args
+                .iter()
+                .any(|a| a == "--filter" || a == "-F" || a.starts_with("--filter="))
+        {
+            let pnpm_args: Vec<OsString> =
+                raw_args[1..].iter().map(|s| OsString::from(s)).collect();
+            return pnpm_cmd::run_passthrough(&pnpm_args, 0);
+        }
+    }
+
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {
@@ -2490,6 +2506,31 @@ mod tests {
                 result.is_err(),
                 "Meta-command '{}' with bad flag should fail to parse",
                 cmd
+            );
+        }
+    }
+
+    #[test]
+    fn test_pnpm_filter_detected() {
+        // pnpm --filter/--filter=/-F should be detected for early passthrough
+        let cases: Vec<(Vec<&str>, bool)> = vec![
+            (vec!["pnpm", "--filter", "mymod", "test"], true),
+            (vec!["pnpm", "--filter=mymod", "test"], true),
+            (vec!["pnpm", "-F", "mymod", "test"], true),
+            (vec!["pnpm", "list"], false),
+            (vec!["pnpm", "install", "lodash"], false),
+            (vec!["git", "--filter", "blob:none", "clone", "url"], false), // not pnpm
+        ];
+        for (args, expected) in &cases {
+            let is_pnpm = args.first() == Some(&"pnpm");
+            let has_filter = args
+                .iter()
+                .any(|a| *a == "--filter" || *a == "-F" || a.starts_with("--filter="));
+            let detected = is_pnpm && has_filter;
+            assert_eq!(
+                detected, *expected,
+                "pnpm --filter detection failed for {:?}",
+                args
             );
         }
     }
