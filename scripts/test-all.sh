@@ -450,6 +450,43 @@ else
     skip_test "rtk golangci-lint" "golangci-lint not installed"
 fi
 
+# ── 28b. Hook Gemini ──────────────────────────────
+
+section "Hook Gemini"
+
+HOOK_OUT=$(echo '{"tool_name":"run_shell_command","tool_input":{"command":"git status"}}' | rtk hook gemini 2>/dev/null)
+if echo "$HOOK_OUT" | grep -q '"rtk git status"'; then
+    PASS=$((PASS + 1))
+    printf "  ${GREEN}PASS${NC}  %s\n" "rtk hook gemini rewrites git status"
+else
+    FAIL=$((FAIL + 1))
+    FAILURES+=("rtk hook gemini rewrites git status")
+    printf "  ${RED}FAIL${NC}  %s\n" "rtk hook gemini rewrites git status"
+    printf "        got: %s\n" "$HOOK_OUT"
+fi
+
+HOOK_OUT2=$(echo '{"tool_name":"run_shell_command","tool_input":{"command":"echo hello"}}' | rtk hook gemini 2>/dev/null)
+if echo "$HOOK_OUT2" | grep -q '"decision":"allow"' && ! echo "$HOOK_OUT2" | grep -q 'hookSpecificOutput'; then
+    PASS=$((PASS + 1))
+    printf "  ${GREEN}PASS${NC}  %s\n" "rtk hook gemini passthrough echo"
+else
+    FAIL=$((FAIL + 1))
+    FAILURES+=("rtk hook gemini passthrough echo")
+    printf "  ${RED}FAIL${NC}  %s\n" "rtk hook gemini passthrough echo"
+    printf "        got: %s\n" "$HOOK_OUT2"
+fi
+
+HOOK_OUT3=$(echo '{"tool_name":"run_shell_command","tool_input":{"command":"rtk git status"}}' | rtk hook gemini 2>/dev/null)
+if echo "$HOOK_OUT3" | grep -q '"decision":"allow"' && ! echo "$HOOK_OUT3" | grep -q 'hookSpecificOutput'; then
+    PASS=$((PASS + 1))
+    printf "  ${GREEN}PASS${NC}  %s\n" "rtk hook gemini no double-rewrite"
+else
+    FAIL=$((FAIL + 1))
+    FAILURES+=("rtk hook gemini no double-rewrite")
+    printf "  ${RED}FAIL${NC}  %s\n" "rtk hook gemini no double-rewrite"
+    printf "        got: %s\n" "$HOOK_OUT3"
+fi
+
 # ── 29. Graphite (conditional) ─────────────────────
 
 section "Graphite (conditional)"
