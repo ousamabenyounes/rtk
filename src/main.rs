@@ -26,6 +26,7 @@ mod grep_cmd;
 mod gt_cmd;
 mod hook_audit_cmd;
 mod hook_check;
+mod hook_cmd;
 mod init;
 mod integrity;
 mod json_cmd;
@@ -329,6 +330,10 @@ enum Commands {
         /// Install OpenCode plugin (in addition to Claude Code)
         #[arg(long)]
         opencode: bool,
+
+        /// Initialize for Gemini CLI instead of Claude Code
+        #[arg(long)]
+        gemini: bool,
 
         /// Show current configuration
         #[arg(long)]
@@ -648,6 +653,18 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+
+    /// Hook processors for LLM CLI tools (Gemini CLI, etc.)
+    Hook {
+        #[command(subcommand)]
+        command: HookCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum HookCommands {
+    /// Process Gemini CLI BeforeTool hook (reads JSON from stdin)
+    Gemini,
 }
 
 #[derive(Subcommand)]
@@ -1589,6 +1606,7 @@ fn main() -> Result<()> {
         Commands::Init {
             global,
             opencode,
+            gemini,
             show,
             claude_md,
             hook_only,
@@ -1599,7 +1617,16 @@ fn main() -> Result<()> {
             if show {
                 init::show_config()?;
             } else if uninstall {
-                init::uninstall(global, cli.verbose)?;
+                init::uninstall(global, gemini, cli.verbose)?;
+            } else if gemini {
+                let patch_mode = if auto_patch {
+                    init::PatchMode::Auto
+                } else if no_patch {
+                    init::PatchMode::Skip
+                } else {
+                    init::PatchMode::Ask
+                };
+                init::run_gemini(global, hook_only, patch_mode, cli.verbose)?;
             } else {
                 let install_opencode = opencode;
                 let install_claude = !opencode;
@@ -1953,6 +1980,12 @@ fn main() -> Result<()> {
         Commands::HookAudit { since } => {
             hook_audit_cmd::run(since, cli.verbose)?;
         }
+
+        Commands::Hook { command } => match command {
+            HookCommands::Gemini => {
+                hook_cmd::run_gemini()?;
+            }
+        },
 
         Commands::Rewrite { args } => {
             let cmd = args.join(" ");
