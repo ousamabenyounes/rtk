@@ -603,7 +603,10 @@ fn format_status_output(porcelain: &str) -> String {
             output.push_str(&format!("   {}\n", f));
         }
         if staged_files.len() > max_files {
-            output.push_str(&format!("   ... +{} more\n", staged_files.len() - max_files));
+            output.push_str(&format!(
+                "   ... +{} more\n",
+                staged_files.len() - max_files
+            ));
         }
     }
 
@@ -613,7 +616,10 @@ fn format_status_output(porcelain: &str) -> String {
             output.push_str(&format!("   {}\n", f));
         }
         if modified_files.len() > max_files {
-            output.push_str(&format!("   ... +{} more\n", modified_files.len() - max_files));
+            output.push_str(&format!(
+                "   ... +{} more\n",
+                modified_files.len() - max_files
+            ));
         }
     }
 
@@ -623,7 +629,10 @@ fn format_status_output(porcelain: &str) -> String {
             output.push_str(&format!("   {}\n", f));
         }
         if untracked_files.len() > max_untracked {
-            output.push_str(&format!("   ... +{} more\n", untracked_files.len() - max_untracked));
+            output.push_str(&format!(
+                "   ... +{} more\n",
+                untracked_files.len() - max_untracked
+            ));
         }
     }
 
@@ -1991,6 +2000,46 @@ no changes added to commit (use "git add" and/or "git commit -a")
         // user_set_limit=false means cap at limit
         let result = filter_log_output(oneline_output, 3, false, true);
         assert_eq!(result.lines().count(), 3);
+    }
+
+    // Issue #618: boundary tests for configurable caps (config::limits())
+    #[test]
+    fn test_format_status_output_modified_shows_all_under_cap() {
+        let mut lines = String::from("## main\n");
+        for i in 1..=12 {
+            lines.push_str(&format!(" M src/mod{}.rs\n", i));
+        }
+        let result = format_status_output(&lines);
+        assert!(result.contains("📝 Modified: 12 files"));
+        assert!(result.contains("mod1.rs"));
+        assert!(result.contains("mod12.rs"));
+        assert!(!result.contains("more"));
+    }
+
+    #[test]
+    fn test_format_status_output_modified_truncates_over_cap() {
+        // Default status_max_files is 15 (from config::limits())
+        let mut lines = String::from("## main\n");
+        for i in 1..=20 {
+            lines.push_str(&format!(" M src/mod{}.rs\n", i));
+        }
+        let result = format_status_output(&lines);
+        assert!(result.contains("📝 Modified: 20 files"));
+        assert!(result.contains("mod1.rs"));
+        assert!(result.contains("... +"));
+    }
+
+    #[test]
+    fn test_format_status_output_untracked_shows_all_under_cap() {
+        let mut lines = String::from("## main\n");
+        for i in 1..=5 {
+            lines.push_str(&format!("?? new{}.txt\n", i));
+        }
+        let result = format_status_output(&lines);
+        assert!(result.contains("❓ Untracked: 5 files"));
+        assert!(result.contains("new1.txt"));
+        assert!(result.contains("new5.txt"));
+        assert!(!result.contains("more"));
     }
 
     /// Regression test: `git branch <name>` must create, not list.
