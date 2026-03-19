@@ -286,7 +286,13 @@ fn list_prs(args: &[String], _verbose: u8, ultra_compact: bool) -> Result<()> {
 fn should_passthrough_pr_view(extra_args: &[String]) -> bool {
     extra_args
         .iter()
-        .any(|a| a == "--json" || a == "--jq" || a == "--web")
+        .any(|a| a == "--json" || a == "--jq" || a == "--web" || a == "--comments")
+}
+
+fn should_passthrough_issue_view(extra_args: &[String]) -> bool {
+    extra_args
+        .iter()
+        .any(|a| a == "--json" || a == "--jq" || a == "--web" || a == "--comments")
 }
 
 fn view_pr(args: &[String], _verbose: u8, ultra_compact: bool) -> Result<()> {
@@ -679,6 +685,14 @@ fn view_issue(args: &[String], _verbose: u8) -> Result<()> {
         Some(result) => result,
         None => return Err(anyhow::anyhow!("Issue number required")),
     };
+
+    if should_passthrough_issue_view(&extra_args) {
+        return run_passthrough("gh", "issue", &{
+            let mut a = vec!["view".to_string(), issue_number];
+            a.extend(extra_args);
+            a
+        });
+    }
 
     let mut cmd = resolved_command("gh");
     cmd.args([
@@ -1489,7 +1503,48 @@ mod tests {
 
     #[test]
     fn test_should_passthrough_pr_view_other_flags() {
-        assert!(!should_passthrough_pr_view(&["--comments".into()]));
+        assert!(!should_passthrough_pr_view(&["--patch".into()]));
+    }
+
+    // RED: --comments must trigger passthrough for pr view (#720)
+    // When a user explicitly asks for comments, gh ignores --comments in --json
+    // mode unless `comments` is in the field list. Passthrough is the safe fix.
+    #[test]
+    fn test_should_passthrough_pr_view_comments() {
+        assert!(should_passthrough_pr_view(&["--comments".into()]));
+    }
+
+    #[test]
+    fn test_should_passthrough_pr_view_comments_with_number() {
+        assert!(should_passthrough_pr_view(&[
+            "123".into(),
+            "--comments".into()
+        ]));
+    }
+
+    // RED: issue view needs the same passthrough logic for --comments (#720)
+    #[test]
+    fn test_should_passthrough_issue_view_comments() {
+        assert!(should_passthrough_issue_view(&["--comments".into()]));
+    }
+
+    #[test]
+    fn test_should_passthrough_issue_view_no_comments() {
+        assert!(!should_passthrough_issue_view(&[]));
+        assert!(!should_passthrough_issue_view(&["--patch".into()]));
+    }
+
+    #[test]
+    fn test_should_passthrough_issue_view_json() {
+        assert!(should_passthrough_issue_view(&[
+            "--json".into(),
+            "body".into()
+        ]));
+    }
+
+    #[test]
+    fn test_should_passthrough_issue_view_web() {
+        assert!(should_passthrough_issue_view(&["--web".into()]));
     }
 
     // --- filter_markdown_body tests ---
