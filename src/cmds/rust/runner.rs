@@ -61,6 +61,9 @@ pub fn run_err(command: &str, verbose: u8) -> Result<()> {
         println!("{}", rtk);
     }
     timer.track(command, "rtk run-err", &raw, &rtk);
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
     Ok(())
 }
 
@@ -102,6 +105,9 @@ pub fn run_test(command: &str, verbose: u8) -> Result<()> {
         println!("{}", summary);
     }
     timer.track(command, "rtk run-test", &raw, &summary);
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
     Ok(())
 }
 
@@ -269,5 +275,57 @@ mod tests {
         let filtered = filter_errors(output);
         assert!(filtered.contains("error"));
         assert!(!filtered.contains("info"));
+    }
+
+    // ── exit code propagation ──────────────────────────────────────────────────
+
+    #[test]
+    #[ignore] // subprocess test — requires built binary
+    fn test_run_err_propagates_nonzero_exit_code() {
+        // `false` always exits with code 1.
+        // Before the fix, rtk err returned 0 regardless of the child's exit code.
+        let rtk_bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("debug")
+            .join("rtk");
+        if !rtk_bin.exists() {
+            return; // binary not built — skip
+        }
+        let status = std::process::Command::new(&rtk_bin)
+            .args(["err", "false"])
+            .status()
+            .expect("Failed to run rtk");
+        assert!(
+            !status.success(),
+            "rtk err false must exit non-zero, got: {:?}",
+            status.code()
+        );
+        assert_eq!(
+            status.code(),
+            Some(1),
+            "rtk err false must propagate exit code 1, got: {:?}",
+            status.code()
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_run_err_zero_exit_on_success() {
+        let rtk_bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("debug")
+            .join("rtk");
+        if !rtk_bin.exists() {
+            return;
+        }
+        let status = std::process::Command::new(&rtk_bin)
+            .args(["err", "true"])
+            .status()
+            .expect("Failed to run rtk");
+        assert!(
+            status.success(),
+            "rtk err true must exit 0, got: {:?}",
+            status.code()
+        );
     }
 }
