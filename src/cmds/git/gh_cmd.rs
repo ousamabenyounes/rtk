@@ -236,6 +236,13 @@ fn format_pr_list(json: &Value, ultra_compact: bool) -> String {
         Some(prs) => prs,
         None => return String::new(),
     };
+    if prs.is_empty() {
+        return if ultra_compact {
+            "No PRs\n".to_string()
+        } else {
+            "No Pull Requests\n".to_string()
+        };
+    }
     let mut out = String::new();
     out.push_str(if ultra_compact {
         "PRs\n"
@@ -1324,5 +1331,30 @@ ___
         assert!(result.contains("## Changes"));
         assert!(result.contains("## Test Plan"));
         assert!(result.contains("Filter HTML comments"));
+    }
+
+    #[test]
+    fn test_format_pr_list_empty_shows_no_pull_requests() {
+        let json = serde_json::json!([]);
+        let result = format_pr_list(&json, false);
+        assert_eq!(result, "No Pull Requests\n");
+    }
+
+    #[test]
+    fn test_format_pr_list_empty_ultra_compact() {
+        let json = serde_json::json!([]);
+        let result = format_pr_list(&json, true);
+        assert_eq!(result, "No PRs\n");
+    }
+
+    #[test]
+    fn test_format_pr_list_with_prs() {
+        let json = serde_json::json!([
+            {"number": 42, "title": "Fix something", "state": "OPEN", "author": {"login": "alice"}, "updatedAt": "2024-01-01T00:00:00Z"}
+        ]);
+        let result = format_pr_list(&json, false);
+        assert!(result.starts_with("Pull Requests\n"), "got: {}", result);
+        assert!(result.contains("#42"), "got: {}", result);
+        assert!(result.contains("Fix something"), "got: {}", result);
     }
 }
