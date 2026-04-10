@@ -1890,8 +1890,22 @@ fn run_cli() -> Result<i32> {
                 "prettier" => prettier_cmd::run(&args[1..], cli.verbose)?,
                 "playwright" => playwright_cmd::run(&args[1..], cli.verbose)?,
                 _ => {
-                    // Generic passthrough with npm boilerplate filter
-                    npm_cmd::run(&args, cli.verbose, cli.skip_env)?
+                    // Unknown package: passthrough directly to npx so the real npx
+                    // binary handles it (e.g. `npx ctx7@latest library node`).
+                    // Previously this incorrectly delegated to npm_cmd::run which
+                    // prepends "run", turning `npx pkg arg` into `npm run pkg arg` (#1080).
+                    let timer = core::tracking::TimedExecution::start();
+                    let mut cmd = core::utils::resolved_command("npx");
+                    for arg in &args {
+                        cmd.arg(arg);
+                    }
+                    let status = cmd.status().context("Failed to run npx")?;
+                    let args_str = args.join(" ");
+                    timer.track_passthrough(
+                        &format!("npx {}", args_str),
+                        &format!("rtk npx {} (passthrough)", args_str),
+                    );
+                    core::utils::exit_code_from_status(&status, "npx")
                 }
             }
         }

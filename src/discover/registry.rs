@@ -1979,6 +1979,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_rewrite_npx_unknown_package_routes_to_rtk_npx() {
+        // Regression test for #1080: unknown npx packages must rewrite to
+        // `rtk npx <pkg>` so that main.rs dispatches to the npx passthrough,
+        // NOT to npm_cmd::run which would prepend "run" and break the command.
+        assert_eq!(
+            rewrite_command("npx ctx7@latest library node", &[]),
+            Some("rtk npx ctx7@latest library node".into())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_npx_scoped_package_routes_to_rtk_npx() {
+        // Scoped packages (@org/pkg) must also route via rtk npx (#1080).
+        assert_eq!(
+            rewrite_command("npx @angular/cli new my-app", &[]),
+            Some("rtk npx @angular/cli new my-app".into())
+        );
+    }
+
     // --- Compound operator edge cases ---
 
     #[test]
