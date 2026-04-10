@@ -58,7 +58,7 @@ struct Cli {
     verbose: u8,
 
     /// Ultra-compact mode: ASCII icons, inline format (Level 2 optimizations)
-    #[arg(short = 'u', long, global = true)]
+    #[arg(long, global = true)]
     ultra_compact: bool,
 
     /// Set SKIP_ENV_VALIDATION=1 for child processes (Next.js, tsc, lint, prisma)
@@ -2531,6 +2531,36 @@ mod tests {
                     assert_eq!(args[0], "git status");
                 }
                 _ => panic!("expected Rewrite command"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_git_push_minus_u_not_consumed_as_ultra_compact() {
+        // Regression test for #1086: `-u` must NOT be consumed as --ultra-compact
+        // when it appears in `rtk git push -u origin branch`.
+        // It should land in the git push args, not in the global Cli flags.
+        let result = Cli::try_parse_from(["rtk", "git", "push", "-u", "origin", "my-branch"]);
+        assert!(result.is_ok(), "rtk git push -u should parse successfully");
+        if let Ok(cli) = result {
+            // ultra_compact must NOT be set — -u belongs to git, not to rtk
+            assert!(
+                !cli.ultra_compact,
+                "-u in `rtk git push -u` must not activate --ultra-compact"
+            );
+            match cli.command {
+                Commands::Git {
+                    command: GitCommands::Push { args },
+                    ..
+                } => {
+                    assert!(
+                        args.contains(&"-u".to_string()),
+                        "'-u' must be present in git push args so git receives --set-upstream"
+                    );
+                    assert!(args.contains(&"origin".to_string()));
+                    assert!(args.contains(&"my-branch".to_string()));
+                }
+                _ => panic!("expected Git Push command"),
             }
         }
     }
