@@ -32,6 +32,7 @@ pub struct HooksConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TrackingConfig {
     pub enabled: bool,
     pub history_days: u32,
@@ -50,6 +51,7 @@ impl Default for TrackingConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DisplayConfig {
     pub colors: bool,
     pub emoji: bool,
@@ -67,6 +69,7 @@ impl Default for DisplayConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FilterConfig {
     pub ignore_dirs: Vec<String>,
     pub ignore_files: Vec<String>,
@@ -89,6 +92,7 @@ impl Default for FilterConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TelemetryConfig {
     pub enabled: bool,
 }
@@ -100,6 +104,7 @@ impl Default for TelemetryConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LimitsConfig {
     /// Max total grep results to show (default: 200)
     pub grep_max_results: usize,
@@ -219,5 +224,51 @@ history_days = 90
 "#;
         let config: Config = toml::from_str(toml).expect("valid toml");
         assert!(config.hooks.exclude_commands.is_empty());
+    }
+
+    #[test]
+    fn test_telemetry_disabled_via_config() {
+        // User sets only [telemetry] enabled=false; all other sections use defaults.
+        let toml = r#"
+[telemetry]
+enabled = false
+"#;
+        let config: Config = toml::from_str(toml).expect("valid toml");
+        assert!(!config.telemetry.enabled, "telemetry should be disabled");
+        // Other sections should use their defaults without error
+        assert!(config.tracking.enabled);
+        assert_eq!(config.tracking.history_days, DEFAULT_HISTORY_DAYS as u32);
+    }
+
+    #[test]
+    fn test_tracking_partial_config_uses_defaults() {
+        // User provides [tracking] with only one field; missing fields should use defaults.
+        let toml = r#"
+[tracking]
+enabled = false
+"#;
+        let config: Config = toml::from_str(toml).expect("valid toml");
+        assert!(!config.tracking.enabled);
+        assert_eq!(
+            config.tracking.history_days, DEFAULT_HISTORY_DAYS as u32,
+            "history_days should use default when not specified"
+        );
+    }
+
+    #[test]
+    fn test_telemetry_disabled_with_partial_tracking() {
+        // Regression: Config::load() previously failed when [tracking] was missing history_days,
+        // causing telemetry_enabled() to fall back to true even when explicitly set to false.
+        let toml = r#"
+[tracking]
+enabled = true
+[telemetry]
+enabled = false
+"#;
+        let config: Config = toml::from_str(toml).expect("valid toml");
+        assert!(
+            !config.telemetry.enabled,
+            "telemetry must respect config value"
+        );
     }
 }
