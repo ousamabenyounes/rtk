@@ -1952,6 +1952,75 @@ mod tests {
         );
     }
 
+    // --- #1148: npm subcommands beyond run/exec ---
+
+    #[test]
+    fn test_rewrite_npm_install() {
+        assert_eq!(
+            rewrite_command("npm install", &[]),
+            Some("rtk npm install".into())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_npm_install_package() {
+        assert_eq!(
+            rewrite_command("npm install express --save", &[]),
+            Some("rtk npm install express --save".into())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_npm_ci() {
+        assert_eq!(rewrite_command("npm ci", &[]), Some("rtk npm ci".into()));
+    }
+
+    #[test]
+    fn test_rewrite_npm_list() {
+        assert_eq!(
+            rewrite_command("npm list", &[]),
+            Some("rtk npm list".into())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_npm_audit() {
+        assert_eq!(
+            rewrite_command("npm audit", &[]),
+            Some("rtk npm audit".into())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_npm_outdated() {
+        assert_eq!(
+            rewrite_command("npm outdated", &[]),
+            Some("rtk npm outdated".into())
+        );
+    }
+
+    #[test]
+    fn test_classify_npm_install() {
+        assert!(matches!(
+            classify_command("npm install"),
+            Classification::Supported {
+                rtk_equivalent: "rtk npm",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_classify_npm_ci() {
+        assert!(matches!(
+            classify_command("npm ci"),
+            Classification::Supported {
+                rtk_equivalent: "rtk npm",
+                ..
+            }
+        ));
+    }
+
     // --- Python tooling ---
 
     #[test]

@@ -5,6 +5,12 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Bug Fixes
+
+* **npm:** extend rewrite rule to cover install, ci, list, outdated, audit and 15 more subcommands beyond run/exec ([#1148](https://github.com/rtk-ai/rtk/issues/1148))
+
 ## [0.36.0](https://github.com/rtk-ai/rtk/compare/v0.35.0...v0.36.0) (2026-04-13)
 
 
@@ -18,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * **pnpm:** Add filter argument support ([2ba8d37](https://github.com/rtk-ai/rtk/commit/2ba8d372df186b4056a3b8906fc25cde8586dd42))
 * **skills:** add /pr-review skill for batch PR review ([21e67a1](https://github.com/rtk-ai/rtk/commit/21e67a1113041b74542d0285e5f74587dfb30b65))
 * **telemetry:** enrich daily ping with gap detection and quality metrics ([644c50f](https://github.com/rtk-ai/rtk/commit/644c50f786e5c567617e7ea907c5f312797b1265))
+
+## [0.34.3](https://github.com/rtk-ai/rtk/compare/v0.34.2...v0.34.3) (2026-04-02)
 
 
 ### Bug Fixes
