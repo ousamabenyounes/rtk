@@ -212,22 +212,30 @@ fn parse_summary_line(summary: &str) -> (usize, usize, usize) {
     let mut failed = 0;
     let mut skipped = 0;
 
-    // Parse lines like "=== 4 passed, 1 failed in 0.50s ==="
+    // Parse lines like "=== 3711 passed, 1 xfailed, 1 failed in 0.50s ==="
+    // Note: "xfailed" and "xpassed" are expected outcomes — not failures.
+    // We use exact word matching to avoid "xfailed".contains("failed") (#672).
     let parts: Vec<&str> = summary.split(',').collect();
 
     for part in parts {
         let words: Vec<&str> = part.split_whitespace().collect();
         for (i, word) in words.iter().enumerate() {
             if i > 0 {
-                if word.contains("passed") {
+                // Strip trailing period/punctuation for robust matching
+                let token = word.trim_end_matches('.');
+                if token == "passed" || token == "xpassed" {
                     if let Ok(n) = words[i - 1].parse::<usize>() {
                         passed = n;
                     }
-                } else if word.contains("failed") {
+                } else if token == "failed" {
+                    // "xfailed" is an expected failure — count it as passed, not failed
                     if let Ok(n) = words[i - 1].parse::<usize>() {
                         failed = n;
                     }
-                } else if word.contains("skipped") {
+                } else if token == "xfailed" {
+                    // xfailed = expected failure = treat as passed
+                    // (already excluded from `failed` above — no action needed)
+                } else if token == "skipped" || token == "deselected" {
                     if let Ok(n) = words[i - 1].parse::<usize>() {
                         skipped = n;
                     }
@@ -332,6 +340,38 @@ collected 0 items
         assert_eq!(
             parse_summary_line("=== 3 passed, 1 failed, 2 skipped in 1.0s ==="),
             (3, 1, 2)
+        );
+    }
+
+    #[test]
+    fn test_xfailed_not_counted_as_failed() {
+        // Regression test for #672: "xfailed" contains "failed" as a substring.
+        // The parser previously matched it with word.contains("failed"), inflating
+        // the failure count. xfailed tests are expected failures — not actual failures.
+        let (passed, failed, skipped) =
+            parse_summary_line("=== 3711 passed, 8 deselected, 1 xfailed in 10.01s ===");
+        assert_eq!(passed, 3711);
+        assert_eq!(
+            failed, 0,
+            "xfailed should NOT count as failed, got failed={failed}"
+        );
+        assert_eq!(skipped, 8); // deselected → skipped bucket
+    }
+
+    #[test]
+    fn test_xfailed_in_full_filter_output() {
+        // End-to-end: the summary line shown to the user must not report failures.
+        let output = "=== test session starts ===\ncollected 3712 items\n\ntests/test_foo.py .....x..                                            [100%]\n\n=== 3711 passed, 8 deselected, 1 xfailed in 10.01s ===";
+        let result = filter_pytest_output(output);
+        assert!(
+            !result.contains("failed"),
+            "xfailed must not appear as 'failed' in summary: {}",
+            result
+        );
+        assert!(
+            result.contains("3711 passed"),
+            "pass count must be preserved: {}",
+            result
         );
     }
 }
