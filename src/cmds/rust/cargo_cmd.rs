@@ -607,8 +607,10 @@ fn filter_cargo_build(output: &str) -> String {
     if error_count == 0 && warnings == 0 {
         return if let Some(finished) = finished_line {
             format!("cargo build ({} crates compiled)\n{}", compiled, finished)
+        } else if compiled == 0 {
+            "cargo build: ok (up to date, nothing recompiled)".to_string()
         } else {
-            format!("cargo build ({} crates compiled)", compiled)
+            format!("cargo build: ok ({} crates compiled)", compiled)
         };
     }
 
@@ -1094,6 +1096,34 @@ mod tests {
         let result = filter_cargo_build(output);
         assert!(result.contains("cargo build"));
         assert!(result.contains("3 crates compiled"));
+    }
+
+    #[test]
+    fn test_filter_cargo_build_up_to_date_with_finished() {
+        // 0 crates compiled but Finished line present → keep existing format
+        let output = "    Finished dev [unoptimized + debuginfo] target(s) in 0.03s\n";
+        let result = filter_cargo_build(output);
+        assert!(result.contains("cargo build"));
+        assert!(result.contains("0 crates compiled"));
+        assert!(result.contains("Finished"));
+    }
+
+    #[test]
+    fn test_filter_cargo_build_no_finished_line_zero_compiled() {
+        // No Finished line, 0 crates: must clearly say "ok", not ambiguous
+        let output = "";
+        let result = filter_cargo_build(output);
+        assert!(result.contains("ok"), "Expected 'ok' in: {}", result);
+        assert!(result.contains("up to date"), "Expected 'up to date' in: {}", result);
+    }
+
+    #[test]
+    fn test_filter_cargo_build_no_finished_line_with_compiled() {
+        // Compiling lines but no Finished line: still show "ok"
+        let output = "   Compiling foo v1.0.0\n   Compiling bar v2.0.0\n";
+        let result = filter_cargo_build(output);
+        assert!(result.contains("ok"), "Expected 'ok' in: {}", result);
+        assert!(result.contains("2 crates compiled"), "Expected crate count in: {}", result);
     }
 
     #[test]
