@@ -1,5 +1,6 @@
 pub const REWRITE_HOOK_FILE: &str = "rtk-rewrite.sh";
 pub const GEMINI_HOOK_FILE: &str = "rtk-hook-gemini.sh";
+pub const QWEN_HOOK_FILE: &str = "rtk-hook-qwen.sh";
 pub const CLAUDE_DIR: &str = ".claude";
 pub const HOOKS_SUBDIR: &str = "hooks";
 pub const SETTINGS_JSON: &str = "settings.json";
@@ -17,3 +18,4 @@ pub const OPENCODE_PLUGIN_PATH: &str = ".config/opencode/plugins/rtk.ts";
 pub const CURSOR_DIR: &str = ".cursor";
 pub const CODEX_DIR: &str = ".codex";
 pub const GEMINI_DIR: &str = ".gemini";
+pub const QWEN_DIR: &str = ".qwen";

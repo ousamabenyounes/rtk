@@ -321,6 +321,10 @@ enum Commands {
         #[arg(long)]
         gemini: bool,
 
+        /// Initialize for Qwen Code CLI (same BeforeTool format as Gemini CLI)
+        #[arg(long)]
+        qwen: bool,
+
         /// Target agent to install hooks for (default: claude)
         #[arg(long, value_enum)]
         agent: Option<AgentTarget>,
@@ -736,6 +740,8 @@ enum HookCommands {
     Cursor,
     /// Process Gemini CLI BeforeTool hook (reads JSON from stdin)
     Gemini,
+    /// Process Qwen Code BeforeTool hook (reads JSON from stdin, same format as Gemini)
+    Qwen,
     /// Process Copilot preToolUse hook (VS Code + Copilot CLI, reads JSON from stdin)
     Copilot,
     /// Check how a command would be rewritten by the hook engine (dry-run)
@@ -1707,6 +1713,7 @@ fn run_cli() -> Result<i32> {
             global,
             opencode,
             gemini,
+            qwen,
             agent,
             show,
             claude_md,
@@ -1731,6 +1738,15 @@ fn run_cli() -> Result<i32> {
                     hooks::init::PatchMode::Ask
                 };
                 hooks::init::run_gemini(global, hook_only, patch_mode, cli.verbose)?;
+            } else if qwen {
+                let patch_mode = if auto_patch {
+                    hooks::init::PatchMode::Auto
+                } else if no_patch {
+                    hooks::init::PatchMode::Skip
+                } else {
+                    hooks::init::PatchMode::Ask
+                };
+                hooks::init::run_qwen(global, hook_only, patch_mode, cli.verbose)?;
             } else if copilot {
                 hooks::init::run_copilot(cli.verbose)?;
             } else if agent == Some(AgentTarget::Kilocode) {
@@ -2069,6 +2085,10 @@ fn run_cli() -> Result<i32> {
             }
             HookCommands::Gemini => {
                 hooks::hook_cmd::run_gemini()?;
+                0
+            }
+            HookCommands::Qwen => {
+                hooks::hook_cmd::run_qwen()?;
                 0
             }
             HookCommands::Copilot => {
