@@ -54,7 +54,8 @@ pub const RULES: &[RtkRule] = &[
     },
     RtkRule {
         // Covers all subcommands handled by npm_cmd.rs — run, exec, install, list, audit, etc. (#1148)
-        pattern: r"^npm\s+(run|run-script|exec|rum|urn|x|install|i|ci|uninstall|remove|rm|update|up|list|ls|outdated|audit|test|rebuild|prune|fund|search|view|info|show|publish|pack)",
+        // (\s|$) prevents prefix collisions: "npm i" must not match "npm init" or "npm invoke"
+        pattern: r"^npm\s+(run|run-script|exec|rum|urn|x|install|i|ci|uninstall|remove|rm|update|up|list|ls|outdated|init|create|audit|test|rebuild|prune|fund|search|view|info|show|publish|pack|link|explain|why|config|cache|dedupe|doctor|help|version|prefix|root)(\s|$)",
         rtk_cmd: "rtk npm",
         rewrite_prefixes: &["npm"],
         category: "PackageManager",

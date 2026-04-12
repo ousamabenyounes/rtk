@@ -2021,6 +2021,62 @@ mod tests {
         ));
     }
 
+    // --- npm prefix collision edge cases (#1148) ---
+
+    #[test]
+    fn test_rewrite_npm_no_prefix_collision_showcase() {
+        // "show" must not match "showcase"
+        assert_eq!(rewrite_command("npm showcase", &[]), None);
+    }
+
+    #[test]
+    fn test_rewrite_npm_no_prefix_collision_installer() {
+        // "install" must not match "installer"
+        assert_eq!(rewrite_command("npm installer", &[]), None);
+    }
+
+    #[test]
+    fn test_rewrite_npm_no_prefix_collision_packages() {
+        // "pack" must not match "packages"
+        assert_eq!(rewrite_command("npm packages", &[]), None);
+    }
+
+    #[test]
+    fn test_rewrite_npm_no_prefix_collision_invoke() {
+        // "i" must not match "invoke"
+        assert_eq!(rewrite_command("npm invoke", &[]), None);
+    }
+
+    #[test]
+    fn test_rewrite_npm_no_prefix_collision_viewers() {
+        // "view" must not match "viewers"
+        assert_eq!(rewrite_command("npm viewers", &[]), None);
+    }
+
+    #[test]
+    fn test_rewrite_npm_init() {
+        assert_eq!(
+            rewrite_command("npm init", &[]),
+            Some("rtk npm init".into())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_npm_link() {
+        assert_eq!(
+            rewrite_command("npm link", &[]),
+            Some("rtk npm link".into())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_npm_run_with_args() {
+        assert_eq!(
+            rewrite_command("npm run build", &[]),
+            Some("rtk npm run build".into())
+        );
+    }
+
     // --- Python tooling ---
 
     #[test]
