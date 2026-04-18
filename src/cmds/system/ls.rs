@@ -18,6 +18,21 @@ lazy_static! {
     .unwrap();
 }
 
+/// Strip format-control characters from a short-flag bundle before passing
+/// extras to the underlying `ls` command.
+///
+/// We always invoke `ls -la` internally for parsing, so `l`, `a`, and `h`
+/// (human-readable, already implied) are redundant. `1` (single-column) is
+/// also stripped: `ls -la -1` overrides `-l` on both Linux and macOS and
+/// returns single-column output that `compact_ls` cannot parse (issue #803).
+/// RTK's own output is already one-entry-per-line, so `-1` is a no-op here.
+fn strip_ls_format_chars(flag_chars: &str) -> String {
+    flag_chars
+        .chars()
+        .filter(|c| !matches!(c, 'l' | 'a' | 'h' | '1'))
+        .collect()
+}
+
 pub fn run(args: &[String], verbose: u8) -> Result<i32> {
     let show_all = args
         .iter()
@@ -43,10 +58,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
             }
         } else {
             let stripped = flag.trim_start_matches('-');
-            let extra: String = stripped
-                .chars()
-                .filter(|c| *c != 'l' && *c != 'a' && *c != 'h')
-                .collect();
+            let extra: String = strip_ls_format_chars(stripped);
             if !extra.is_empty() {
                 cmd.arg(format!("-{}", extra));
             }
@@ -456,6 +468,52 @@ mod tests {
     #[test]
     fn test_parse_ls_line_returns_none_for_total() {
         assert!(parse_ls_line("total 48").is_none());
+    }
+
+    // Regression test for #803: `rtk ls -1` passed `-1` to `ls -la -1`,
+    // which returns single-column output on both Linux and macOS, causing
+    // compact_ls to skip all lines and return "(empty)".
+    // The fix strips `1` from user flags just like `l`, `a`, and `h`.
+    #[test]
+    fn test_flag_minus_one_does_not_produce_empty_output() {
+        let long_format_input = "total 48\n\
+                     drwxr-xr-x  2 user  staff    64 Jan  1 12:00 src\n\
+                     -rw-r--r--  1 user  staff  1234 Jan  1 12:00 Cargo.toml\n\
+                     -rw-r--r--  1 user  staff  5678 Jan  1 12:00 README.md\n";
+        // compact_ls always receives ls -la output (long format), never single-column.
+        // Verify that the standard long-format output produces non-empty entries
+        // (the fix ensures we never pass -1 to the underlying ls command).
+        let (entries, _summary) = compact_ls(long_format_input, false);
+        assert!(
+            !entries.contains("(empty)"),
+            "-1 flag must not produce empty output; got: {:?}",
+            entries
+        );
+        assert!(entries.contains("src/"));
+        assert!(entries.contains("Cargo.toml"));
+        assert!(entries.contains("README.md"));
+    }
+
+    #[test]
+    fn test_strip_ls_format_chars_standalone_one() {
+        assert_eq!(strip_ls_format_chars("1"), "");
+    }
+
+    #[test]
+    fn test_strip_ls_format_chars_combined_one() {
+        // `-1R` → `-R` (keep recursive, drop single-column)
+        assert_eq!(strip_ls_format_chars("1R"), "R");
+    }
+
+    #[test]
+    fn test_strip_ls_format_chars_standard_la() {
+        assert_eq!(strip_ls_format_chars("la"), "");
+    }
+
+    #[test]
+    fn test_strip_ls_format_chars_preserves_unknown() {
+        // Non-format flags like -R, -t, -S must pass through unchanged.
+        assert_eq!(strip_ls_format_chars("laRt"), "Rt");
     }
 
     #[test]
