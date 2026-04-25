@@ -1003,50 +1003,33 @@ fn run_push(args: &[String], verbose: u8, global_args: &[String]) -> Result<i32>
         cmd.arg(arg);
     }
 
-    let output = cmd.stdin(Stdio::inherit()).output().context("Failed to run git push")?;
+    // #963: `git push` previously used .output(), which buffered stdout AND
+    // stderr until completion. Git push prints progress (counting/compressing
+    // /writing objects) to stderr and may prompt for SSH passphrases or HTTPS
+    // credentials. With stderr captured, the user / Claude Code's bash tool
+    // saw no output for 30+ seconds and treated the call as hung — issue #963.
+    //
+    // Push output is small (a handful of lines) and there is no meaningful
+    // token saving to be had from compressing it. Inherit all three streams
+    // so progress and auth prompts flow through in real time. Tracking still
+    // records the invocation; raw/filtered counts collapse to 0 because we
+    // can't observe what we did not capture.
+    let status = cmd
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .context("Failed to run git push")?;
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let raw = format!("{}{}", stdout, stderr);
+    timer.track(
+        &format!("git push {}", args.join(" ")),
+        &format!("rtk git push {}", args.join(" ")),
+        "",
+        "",
+    );
 
-    if output.status.success() {
-        let compact = if stderr.contains("Everything up-to-date") {
-            "ok (up-to-date)".to_string()
-        } else {
-            let mut push_info = String::new();
-            for line in stderr.lines() {
-                if line.contains("->") {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 3 {
-                        push_info = format!("ok {}", parts[parts.len() - 1]);
-                        break;
-                    }
-                }
-            }
-            if !push_info.is_empty() {
-                push_info
-            } else {
-                "ok".to_string()
-            }
-        };
-
-        println!("{}", compact);
-
-        timer.track(
-            &format!("git push {}", args.join(" ")),
-            &format!("rtk git push {}", args.join(" ")),
-            &raw,
-            &compact,
-        );
-    } else {
-        eprintln!("FAILED: git push");
-        if !stderr.trim().is_empty() {
-            eprintln!("{}", stderr);
-        }
-        if !stdout.trim().is_empty() {
-            eprintln!("{}", stdout);
-        }
-        return Ok(exit_code_from_output(&output, "git push"));
+    if !status.success() {
+        return Ok(exit_code_from_status(&status, "git push"));
     }
 
     Ok(0)
