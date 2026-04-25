@@ -2058,8 +2058,22 @@ fn run_cli() -> Result<i32> {
                 "prettier" => prettier_cmd::run(&args[1..], cli.verbose)?,
                 "playwright" => playwright_cmd::run(&args[1..], cli.verbose)?,
                 _ => {
-                    // Generic passthrough with npm boilerplate filter
-                    npm_cmd::run(&args, cli.verbose, cli.skip_env)?
+                    // Generic npx passthrough — execute via `npx` (binary lookup),
+                    // NOT `npm` (script lookup). Routing through `npm_cmd::run` would
+                    // turn `npx oxlint` into `npm run oxlint`, breaking any binary
+                    // without a matching package.json script entry. See issue #1495.
+                    let timer = core::tracking::TimedExecution::start();
+                    let mut cmd = core::utils::resolved_command("npx");
+                    for arg in &args {
+                        cmd.arg(arg);
+                    }
+                    let status = cmd.status().context("Failed to run npx")?;
+                    let args_str = args.join(" ");
+                    timer.track_passthrough(
+                        &format!("npx {}", args_str),
+                        &format!("rtk npx {} (passthrough)", args_str),
+                    );
+                    core::utils::exit_code_from_status(&status, "npx")
                 }
             }
         }
@@ -2595,6 +2609,25 @@ mod tests {
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             )),
             Ok(_) => panic!("Expected parse error for unknown subcommand"),
+        }
+    }
+
+    /// Regression test for #1495 — `npx oxlint` was being routed through `npm_cmd::run`
+    /// in the Commands::Npx fallback, which executes `npm` (with `run` injection) and
+    /// produced "Missing script: oxlint" for any binary not declared in package.json.
+    /// Verify that the args still parse cleanly into Commands::Npx so the dispatcher
+    /// reaches the npx-passthrough fallback (binary lookup, not script lookup).
+    #[test]
+    fn test_try_parse_npx_oxlint_routes_to_npx_command() {
+        let result = Cli::try_parse_from(["rtk", "npx", "oxlint", "--fix", "src/"]);
+        assert!(result.is_ok(), "npx oxlint should parse successfully");
+        if let Ok(cli) = result {
+            match cli.command {
+                Commands::Npx { args } => {
+                    assert_eq!(args, vec!["oxlint", "--fix", "src/"]);
+                }
+                _ => panic!("Expected Commands::Npx, got {:?}", cli.command),
+            }
         }
     }
 
