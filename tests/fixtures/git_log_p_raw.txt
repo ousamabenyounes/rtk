@@ -1,0 +1,25 @@
+commit a1ef0ef0365a2b347ccec5c447523d44817b992b
+Merge: e1cd274 c873e19
+Author: Adrien Eppling <adrien.eppling@supinfo.com>
+Date:   Fri Jun 5 17:13:31 2026 +0200
+
+    chore: merge master into develop (security port + release bump)
+
+commit 4be04e0bdcbc9fe7ccd367e00013e302196c2937
+Author: rtk-release-bot[bot] <280461666+rtk-release-bot[bot]@users.noreply.github.com>
+Date:   Fri Jun 5 10:48:27 2026 +0000
+
+    chore(master): release 0.42.2
+
+diff --git a/Cargo.toml b/Cargo.toml
+index 6aa2ea2..ca34267 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rtk"
+-version = "0.42.1"
++version = "0.42.2"
+ edition = "2021"
+ authors = ["Patrick Szymkowiak"]
+ description = "Rust Token Killer - High-performance CLI proxy to minimize LLM token consumption"

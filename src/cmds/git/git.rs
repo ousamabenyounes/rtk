@@ -433,87 +433,65 @@ fn run_log(
 ) -> Result<i32> {
     let timer = tracking::TimedExecution::start();
 
-    // When user explicitly requests patch output (-p / --patch), pass through
-    // raw git output without RTK formatting or filtering. The patch content is
-    // vital context for agents diagnosing problems via git history.
-    let wants_patch = args
-        .iter()
-        .any(|arg| arg == "-p" || arg == "--patch");
-
-    if wants_patch {
-        let mut cmd = git_cmd(global_args);
-        cmd.arg("log");
-        for arg in args {
-            cmd.arg(arg);
-        }
-
-        let result = exec_capture(&mut cmd).context("Failed to run git log")?;
-
-        if !result.success() {
-            eprintln!("{}", result.stderr);
-            return Ok(result.exit_code);
-        }
-
-        if verbose > 0 {
-            eprintln!("Git log output:");
-        }
-
-        print!("{}", result.stdout);
-
-        timer.track(
-            &format!("git log {}", args.join(" ")),
-            &format!("rtk git log {} (passthrough)", args.join(" ")),
-            &result.stdout,
-            &result.stdout,
-        );
-
-        return Ok(0);
-    }
+    // When the user explicitly requests patch output (-p / --patch), RTK must
+    // not inject its own --pretty/limit/--no-merges defaults nor run the
+    // commit-block filter: the filter treats diff hunks as commit body and
+    // drops them behind a `[+N lines omitted]` marker. The full patch is vital
+    // context for agents diagnosing problems via git history. See #2275.
+    let patch_passthrough = wants_patch(args);
 
     let mut cmd = git_cmd(global_args);
     cmd.arg("log");
 
-    // Check if user provided format flags
-    let has_format_flag = args.iter().any(|arg| {
-        arg.starts_with("--oneline") || arg.starts_with("--pretty") || arg.starts_with("--format")
-    });
+    // RTK formatting defaults apply only to the normal (non-patch) path.
+    let mut limit = 0usize;
+    let mut user_set_limit = false;
+    let mut has_format_flag = false;
+    if !patch_passthrough {
+        // Check if user provided format flags
+        has_format_flag = args.iter().any(|arg| {
+            arg.starts_with("--oneline")
+                || arg.starts_with("--pretty")
+                || arg.starts_with("--format")
+        });
 
-    // Check if user provided limit flag (-N, -n N, --max-count=N, --max-count N)
-    let has_limit_flag = args.iter().any(|arg| {
-        (arg.starts_with('-') && arg.chars().nth(1).is_some_and(|c| c.is_ascii_digit()))
-            || arg == "-n"
-            || arg.starts_with("--max-count")
-    });
+        // Check if user provided limit flag (-N, -n N, --max-count=N, --max-count N)
+        let has_limit_flag = args.iter().any(|arg| {
+            (arg.starts_with('-') && arg.chars().nth(1).is_some_and(|c| c.is_ascii_digit()))
+                || arg == "-n"
+                || arg.starts_with("--max-count")
+        });
 
-    // Apply RTK defaults only if user didn't specify them
-    // Use %b (body) to preserve first line of commit body for agent context
-    // (BREAKING CHANGE, Closes #xxx, design notes)
-    if !has_format_flag {
-        cmd.args(["--pretty=format:%h %s (%ar) <%an>%n%b%n---END---"]);
-    }
+        // Apply RTK defaults only if user didn't specify them
+        // Use %b (body) to preserve first line of commit body for agent context
+        // (BREAKING CHANGE, Closes #xxx, design notes)
+        if !has_format_flag {
+            cmd.args(["--pretty=format:%h %s (%ar) <%an>%n%b%n---END---"]);
+        }
 
-    // Determine limit: respect user's explicit -N flag, use sensible defaults otherwise
-    let (limit, user_set_limit) = if has_limit_flag {
-        // User explicitly passed -N / -n N / --max-count=N → respect their choice
-        let n = parse_user_limit(args).unwrap_or(10);
-        (n, true)
-    } else if has_format_flag {
-        // --oneline / --pretty without -N: user wants compact output, allow more
-        cmd.arg("-50");
-        (50, false)
-    } else {
-        // No flags at all: default to 10
-        cmd.arg("-10");
-        (10, false)
-    };
+        // Determine limit: respect user's explicit -N flag, use sensible defaults otherwise
+        (limit, user_set_limit) = if has_limit_flag {
+            // User explicitly passed -N / -n N / --max-count=N → respect their choice
+            let n = parse_user_limit(args).unwrap_or(10);
+            (n, true)
+        } else if has_format_flag {
+            // --oneline / --pretty without -N: user wants compact output, allow more
+            cmd.arg("-50");
+            (50, false)
+        } else {
+            // No flags at all: default to 10
+            cmd.arg("-10");
+            (10, false)
+        };
 
-    // Only add --no-merges if user didn't explicitly request merge commits
-    let wants_merges = args
-        .iter()
-        .any(|arg| arg == "--merges" || arg == "--min-parents=2" || arg == "--no-merges");
-    // Don't add --no-merges if user explicitly requested merges or an exact count (-n N / --max-count)
-    if !wants_merges && !has_limit_flag {
-        cmd.arg("--no-merges");
+        // Only add --no-merges if user didn't explicitly request merge commits
+        let wants_merges = args
+            .iter()
+            .any(|arg| arg == "--merges" || arg == "--min-parents=2" || arg == "--no-merges");
+        // Don't add --no-merges if user explicitly requested merges or an exact count (-n N / --max-count)
+        if !wants_merges && !has_limit_flag {
+            cmd.arg("--no-merges");
+        }
     }
 
     // Pass all user arguments
@@ -532,10 +510,15 @@ fn run_log(
         eprintln!("Git log output:");
     }
 
-    // Post-process: truncate long messages, cap lines only if RTK set the default
-    let filtered = filter_log_output(&result.stdout, limit, user_set_limit, has_format_flag);
-    let filtered = never_worse(&result.stdout, &filtered).to_string();
-    println!("{}", filtered);
+    // Post-process: raw passthrough for patch output, RTK filter otherwise.
+    let filtered = finalize_log_output(args, &result.stdout, limit, user_set_limit, has_format_flag);
+    // git's patch output already ends in a newline; the filtered path relies on
+    // println! to terminate the last line.
+    if patch_passthrough {
+        print!("{filtered}");
+    } else {
+        println!("{filtered}");
+    }
 
     timer.track(
         &format!("git log {}", args.join(" ")),
@@ -545,6 +528,31 @@ fn run_log(
     );
 
     Ok(0)
+}
+
+/// True when `git log` args explicitly request patch output (`-p` / `--patch`).
+fn wants_patch(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == "-p" || arg == "--patch")
+}
+
+/// Decide the final text RTK prints for `git log`.
+///
+/// When the user asked for patch output, the raw git output is returned
+/// untouched — RTK's commit-block filter would otherwise treat diff hunks as
+/// commit body and discard them. Otherwise the normal token-reducing filter is
+/// applied. This is the single decision point exercised by the unit tests.
+fn finalize_log_output(
+    args: &[String],
+    raw_stdout: &str,
+    limit: usize,
+    user_set_limit: bool,
+    has_format_flag: bool,
+) -> String {
+    if wants_patch(args) {
+        raw_stdout.to_string()
+    } else {
+        filter_log_output(raw_stdout, limit, user_set_limit, has_format_flag)
+    }
 }
 
 /// Filter git log output: truncate long messages, cap lines
@@ -2655,6 +2663,51 @@ A  added.rs
         assert!(result.contains("abc1234"));
         assert!(result.contains("def5678"));
         assert_eq!(result.lines().count(), 2);
+    }
+
+    // ── git log -p / --patch passthrough (issue #2275) ───────────────────────
+
+    #[test]
+    fn test_wants_patch_detects_explicit_flags() {
+        let s = |a: &str| a.to_string();
+        assert!(wants_patch(&[s("-p")]));
+        assert!(wants_patch(&[s("--patch")]));
+        assert!(wants_patch(&[s("-p"), s("-3")]));
+        assert!(wants_patch(&[s("--stat"), s("--patch")]));
+        // Plain / unrelated / negated flags must NOT trigger passthrough.
+        assert!(!wants_patch(&[]));
+        assert!(!wants_patch(&[s("--oneline")]));
+        assert!(!wants_patch(&[s("--no-patch")]));
+        assert!(!wants_patch(&[s("--patch-with-stat")]));
+    }
+
+    #[test]
+    fn test_finalize_preserves_patch_when_requested() {
+        // Real `git log -p` capture (see tests/fixtures/git_log_p_raw.txt).
+        let raw = include_str!("../../../tests/fixtures/git_log_p_raw.txt");
+        let out = finalize_log_output(&["-p".to_string()], raw, 10, false, false);
+        // Raw patch output is passed through verbatim — every diff line survives.
+        assert_eq!(out, raw, "patch output must be byte-identical passthrough");
+        assert!(out.contains("diff --git"), "patch header must survive");
+        assert!(out.contains("@@"), "hunk header must survive");
+        assert!(
+            !out.contains("lines omitted"),
+            "RTK commit-block filter must NOT run on patch output, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn test_finalize_filters_when_no_patch_flag() {
+        // Without -p the same content goes through the RTK filter, which (by
+        // design) drops the bulk of the lines. This proves the two code paths
+        // genuinely diverge — i.e. the fix changes observable behaviour.
+        let raw = include_str!("../../../tests/fixtures/git_log_p_raw.txt");
+        let filtered = finalize_log_output(&[], raw, 10, false, false);
+        assert_ne!(filtered, raw, "non-patch path must transform the output");
+        assert!(
+            filtered.len() < raw.len(),
+            "RTK filter is expected to shrink non-patch output"
+        );
     }
 
     #[test]
