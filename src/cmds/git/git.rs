@@ -433,6 +433,43 @@ fn run_log(
 ) -> Result<i32> {
     let timer = tracking::TimedExecution::start();
 
+    // When user explicitly requests patch output (-p / --patch), pass through
+    // raw git output without RTK formatting or filtering. The patch content is
+    // vital context for agents diagnosing problems via git history.
+    let wants_patch = args
+        .iter()
+        .any(|arg| arg == "-p" || arg == "--patch");
+
+    if wants_patch {
+        let mut cmd = git_cmd(global_args);
+        cmd.arg("log");
+        for arg in args {
+            cmd.arg(arg);
+        }
+
+        let result = exec_capture(&mut cmd).context("Failed to run git log")?;
+
+        if !result.success() {
+            eprintln!("{}", result.stderr);
+            return Ok(result.exit_code);
+        }
+
+        if verbose > 0 {
+            eprintln!("Git log output:");
+        }
+
+        print!("{}", result.stdout);
+
+        timer.track(
+            &format!("git log {}", args.join(" ")),
+            &format!("rtk git log {} (passthrough)", args.join(" ")),
+            &result.stdout,
+            &result.stdout,
+        );
+
+        return Ok(0);
+    }
+
     let mut cmd = git_cmd(global_args);
     cmd.arg("log");
 
